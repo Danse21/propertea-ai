@@ -20,4 +20,9 @@ package = false
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
+    "ipykernel>=7.3.0",
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.3",
+    "pandas>=3.0.5",
+    "seaborn>=0.13.2",
 ]
