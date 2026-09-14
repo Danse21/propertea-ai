@@ -1,4 +1,4 @@
-"""Data cleaning + feature engineering for the Ames Housing dataset."""
+"""Data cleaning and feature engineering for the Ames Housing price dataset."""
 
 import pandas as pd
 
@@ -81,13 +81,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def prepare_data(
-    df: pd.DataFrame, *, drop_outliers: bool = True, require_target: bool = True
-) -> pd.DataFrame:
-    """Single entry point: validate_data(), then clean_data(), then engineer_features().
-
-    drop_outliers and require_target should both be True at train time and
-    False at predict time.
-    """
+def prepare_data(df: pd.DataFrame, *, drop_outliers: bool = True, require_target: bool = True) -> pd.DataFrame:
+    """Single entry point: validate_data(), then clean_data(), then engineer_features()."""
     validate_data(df, require_target=require_target)
     return engineer_features(clean_data(df, drop_outliers=drop_outliers))
