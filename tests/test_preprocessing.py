@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from backend.app.services.preprocessing import (
+from app.services.preprocessing import (
     FEATURES_COLUMNS,
     NA_IS_CATEGORY,
     OUTLIER_IDS,
@@ -14,8 +14,9 @@ from backend.app.services.preprocessing import (
     validate_data,
 )
 
+
 def make_valid_df(n_rows: int = 2) -> pd.DataFrame:
-    
+
     rows = []
     for i in range(n_rows):
         row = {col: 0 for col in FEATURES_COLUMNS}
@@ -59,7 +60,8 @@ class TestValidateData:
         validate_data(df, require_target=False)
 
     def test_reports_all_problems_at_once(self):
-        df = make_valid_df().drop(columns=["Neighborhood", TARGET_COLUMN]).iloc[0:0]
+        df = make_valid_df().drop(
+            columns=["Neighborhood", TARGET_COLUMN]).iloc[0:0]
         with pytest.raises(DataValidationError) as exc_info:
             validate_data(df, require_target=True)
         message = str(exc_info.value)
@@ -124,7 +126,8 @@ class TestEngineerFeatures:
         assert "HouseAge" in result.columns
 
     def test_skips_house_age_when_source_columns_missing(self):
-        df = pd.DataFrame({"TotalBsmtSF": [800], "1stFlrSF": [900], "2ndFlrSF": [200]})
+        df = pd.DataFrame(
+            {"TotalBsmtSF": [800], "1stFlrSF": [900], "2ndFlrSF": [200]})
         result = engineer_features(df)
         assert "HouseAge" not in result.columns
         assert "TotalSF" in result.columns

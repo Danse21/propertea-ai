@@ -2,7 +2,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app import models  # noqa: F401 -- registers tables on Base.metadata before create_all
 from app.db import Base, engine
+from app.routers import datasets
 
 
 @asynccontextmanager
@@ -12,8 +14,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="propertea-ai", lifespan=lifespan)
+app.include_router(datasets.router)
 
 
-@app.get('/health')
+@app.get("/health")
 def get_health():
     return {"status": "ok"}
