@@ -1497,7 +1497,10 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
+    { name = "numpy" },
+    { name = "pandas" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "python-dotenv" },
     { name = "scikit-learn" },
     { name = "sqlalchemy" },
 ]
@@ -1507,8 +1510,6 @@ dev = [
     { name = "ipykernel" },
     { name = "joblib" },
     { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "pandas" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "seaborn" },
@@ -1518,7 +1519,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.141.1" },
+    { name = "numpy", specifier = ">=2.5.3" },
+    { name = "pandas", specifier = ">=3.0.5" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.5" },
+    { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "scikit-learn", specifier = ">=1.9.0" },
     { name = "sqlalchemy", specifier = ">=2.0.52" },
 ]
@@ -1528,8 +1532,6 @@ dev = [
     { name = "ipykernel", specifier = ">=7.3.0" },
     { name = "joblib", specifier = ">=1.6.0" },
     { name = "matplotlib", specifier = ">=3.11.1" },
-    { name = "numpy", specifier = ">=2.5.3" },
-    { name = "pandas", specifier = ">=3.0.5" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "seaborn", specifier = ">=0.13.2" },
