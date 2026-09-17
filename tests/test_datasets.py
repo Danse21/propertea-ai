@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from app.models import DatasetRow
-from app.routers.datasets import to_records
+from app.routers.datasets import persist, rows_to_dataframe, to_records
 
 
 def _upload(client, payload, *, session="s1", target="SalePrice", name="ames"):
@@ -57,6 +57,38 @@ def test_to_records_is_json_safe():
     json.dumps(recs, allow_nan=False)
     assert type(recs[0]["i"]) is int
     assert recs[1]["f"] is None and recs[2]["f"] is None
+
+
+def test_rows_to_dataframe_round_trips_persist(db_session):
+    """to_records() -> persist() -> rows_to_dataframe() reproduces the original frame."""
+    original = pd.DataFrame(
+        {
+            "Id": [1, 2, 3],
+            "LotArea": [8450, 9600, 11250],
+            "MasVnrType": ["BrkFace", "None", None],
+        }
+    )
+    ds = persist(
+        db_session,
+        name="roundtrip",
+        target_column="SalePrice",
+        source_url=None,
+        owner_id="s1",
+        df=original,
+    )
+
+    df = rows_to_dataframe(db_session, ds.id)
+
+    assert list(df.columns) == list(original.columns)
+    assert df["Id"].tolist() == original["Id"].tolist()
+    assert df["LotArea"].tolist() == original["LotArea"].tolist()
+    assert df["MasVnrType"].tolist() == original["MasVnrType"].tolist()
+
+
+def test_rows_to_dataframe_unknown_dataset_returns_empty_frame(db_session):
+    df = rows_to_dataframe(db_session, dataset_id=999)
+    assert df.empty
+    assert list(df.columns) == []
 
 
 @pytest.mark.parametrize(

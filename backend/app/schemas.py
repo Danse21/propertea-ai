@@ -24,3 +24,33 @@ class DatasetOut(BaseModel):
 class DatasetDetail(DatasetOut):
     columns: list[str]
     rows: list[dict]
+
+
+class TrainRequest(BaseModel):
+    algo: str
+
+
+class TrainResponse(BaseModel):
+    model_id: int
+    algo: str
+    metrics: dict
+    best_params: dict | None
+    importances: dict[str, float]
+
+
+class ModelOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    dataset_id: int
+    algo: str
+    metrics: dict
+    created_at: datetime
+
+
+class PredictRequest(BaseModel):
+    overrides: dict[str, str | int | float]
+
+
+class PredictResponse(BaseModel):
+    prediction: float
