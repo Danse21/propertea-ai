@@ -63,7 +63,7 @@ def train_model(raw_df: pd.DataFrame, algo: str) -> dict:
     best_params = None
 
     if param_grid:
-        search = GridSearchCV(pipeline, param_grid, cv=3, scoring="neg_root_mean_squared_error", n_jobs=2)
+        search = GridSearchCV(pipeline, param_grid, cv=3, scoring="neg_root_mean_squared_error", n_jobs=1)
         search.fit(X_train, y_train)
         pipeline = search.best_estimator_
         best_params = search.best_params_
@@ -89,7 +89,7 @@ def train_model(raw_df: pd.DataFrame, algo: str) -> dict:
 def get_feature_importances(pipeline: Pipeline, X: pd.DataFrame, y: pd.Series, top_n: int = 10) -> pd.Series:
     """Permutation importance, one value per original column (not per one-hot dummy)."""
     result = permutation_importance(
-        pipeline, X, y, n_repeats=5, random_state=42, scoring="neg_root_mean_squared_error", n_jobs=2
+        pipeline, X, y, n_repeats=5, random_state=42, scoring="neg_root_mean_squared_error", n_jobs=1
     )
     importances = pd.Series(result.importances_mean, index=X.columns)
     return importances.sort_values(ascending=False).head(top_n)
