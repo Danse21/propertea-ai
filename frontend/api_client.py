@@ -7,7 +7,7 @@ import pandas as pd
 import requests
 
 BASE_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
-TTIMEOUT_SECONDS = 30
+TIMEOUT_SECONDS = 30
 
 TRAIN_TIMEOUT_SECONDS = 240
 PAGE_SIZE = 500
@@ -25,9 +25,9 @@ def _headers(session_id: str) -> dict:
     return {"X-Session-Id": session_id}
 
 
-def _request(method: str, path: str, **kwargs) -> dict | list:
+def _request(method: str, path: str, *, timeout: float = TIMEOUT_SECONDS, **kwargs) -> dict | list:
     try:
-        response = requests.request(method, f"{BASE_URL}{path}", timeout=TIMEOUT_SECONDS, **kwargs)
+        response = requests.request(method, f"{BASE_URL}{path}", timeout=timeout, **kwargs)
     except requests.RequestException as e:
         raise BackendUnreachableError(f"Could not reach the backend at {BASE_URL}: {e}") from e
 
@@ -106,6 +106,7 @@ def train(session_id: str, dataset_id: int, algo: str) -> dict:
         f"/datasets/{dataset_id}/train",
         json={"algo": algo},
         headers=_headers(session_id),
+        timeout=TRAIN_TIMEOUT_SECONDS,
     )
 
 
