@@ -4,6 +4,15 @@ CSS = """
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <style>
 :root {
+    /* This app is light-theme only. `[theme] base = "light"` in
+       .streamlit/config.toml pins Streamlit's own painted colors, but native
+       browser form controls (radio dots, checkboxes, scrollbars) follow the
+       separate `color-scheme` CSS property, not Streamlit's theme — without
+       this, a visitor in OS/browser dark mode still gets dark-style native
+       widgets (e.g. a hollow ring instead of a filled radio dot) even though
+       every painted color on the page is light. */
+    color-scheme: light;
+
     /* Palette: raw color values */
     --color-white: #FFFFFF;
     --color-black: #000000;
@@ -375,6 +384,15 @@ div[data-testid="stMetricValue"] {
 [data-testid="stRadioOption"] > div > div:first-child > div:first-child {
     width: 22px !important;
     height: 22px !important;
+}
+
+[data-testid="stRadioOption"]:not([data-selected]) > div > div:first-child > div:first-child {
+    background: var(--ink) !important;
+    opacity: 1 !important;
+}
+
+[data-testid="stRadioOption"]:not([data-selected]) > div > div:first-child > div:first-child > div {
+    background: var(--ink) !important;
 }
 [data-testid="stRadioOption"][data-selected] {
     border: 2px solid var(--danger) !important;
