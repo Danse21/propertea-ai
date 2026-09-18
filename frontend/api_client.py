@@ -7,7 +7,9 @@ import pandas as pd
 import requests
 
 BASE_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
-TIMEOUT_SECONDS = 30
+TTIMEOUT_SECONDS = 30
+
+TRAIN_TIMEOUT_SECONDS = 240
 PAGE_SIZE = 500
 
 
