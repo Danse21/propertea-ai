@@ -85,6 +85,25 @@ def persist(
     return ds
 
 
+def rows_to_dataframe(db: Session, dataset_id: int) -> pd.DataFrame:
+    """Inverse of to_records() — reload every row for a dataset as a DataFrame.
+
+    Queries DatasetRow directly rather than going through the public, paginated
+    GET /datasets/{id} endpoint: an internal training job needs the whole
+    dataset, and pagination is a public-API concern, not one this function
+    should inherit.
+    """
+    rows = list(
+        db.scalars(
+            select(DatasetRow.data)
+            .where(DatasetRow.dataset_id == dataset_id)
+            .order_by(DatasetRow.idx)
+        )
+    )
+    columns = list(rows[0]) if rows else []
+    return pd.DataFrame(rows, columns=columns)
+
+
 async def fetch(url: str) -> bytes:
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:

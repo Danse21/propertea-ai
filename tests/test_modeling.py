@@ -1,5 +1,3 @@
-from unittest.mock import MagicMock, patch
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -7,17 +5,8 @@ from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from backend.app.services.preprocessing import FEATURES_COLUMNS, TARGET_COLUMN, engineer_features
-from frontend.ml_service import (
-    MAX_URL_DOWNLOAD_BYTES,
-    MODELS,
-    build_predict_row,
-    get_feature_importances,
-    load_dataset_from_url,
-    missingness_summary,
-    top_mover_correlations,
-    train_model,
-)
+from app.services.modeling import MODELS, build_predict_row, get_feature_importances, train_model
+from app.services.preprocessing import FEATURES_COLUMNS, TARGET_COLUMN, engineer_features
 
 
 def make_valid_df(n_rows: int = 5) -> pd.DataFrame:
@@ -48,12 +37,7 @@ def make_valid_df(n_rows: int = 5) -> pd.DataFrame:
 
 
 def make_training_df(n_rows: int = 40) -> pd.DataFrame:
-    """Bigger than make_valid_df() and with real numeric variation.
-
-    train_model()'s GridSearchCV/cv folds need non-degenerate data to fit
-    and score meaningfully — make_valid_df()'s single repeated row works
-    for pure unit tests but would give every cv fold identical data here.
-    """
+    """Enough rows, with real numeric variation, for GridSearchCV's cv folds to be non-degenerate."""
     rng = np.random.default_rng(0)
     rows = []
     for i in range(n_rows):
@@ -89,10 +73,9 @@ class TestTrainModel:
         df = make_training_df()
         result = train_model(df, algo)
         rmse = result["metrics"]["rmse_log"]
-        # Regression guard for the exact bug this class was added for: an
-        # accidental extra sqrt() inflates a small RMSE (e.g. sqrt(0.141) =
-        # 0.375), so bounding it well below 1.0 on the log-price scale
-        # would have caught it immediately.
+        # Regression guard for a real past bug: an accidental extra sqrt()
+        # inflates a small RMSE (e.g. sqrt(0.141) = 0.375), so bounding it
+        # well below 1.0 on the log-price scale would have caught it.
         assert 0 < rmse < 1.0
 
     @pytest.mark.parametrize("algo", list(MODELS.keys()))
@@ -113,44 +96,6 @@ class TestTrainModel:
         assert result["best_params"] is not None
         for param_name, value in result["best_params"].items():
             assert value in MODELS[algo]["param_grid"][param_name]
-
-
-class TestMissingnessSummary:
-    def test_reports_percent_missing_sorted_descending(self):
-        df = pd.DataFrame(
-            {
-                "A": [1, None, None, None],
-                "B": [1, 2, None, 4],
-                "C": [1, 2, 3, 4],
-            }
-        )
-        result = missingness_summary(df)
-        assert list(result.index) == ["A", "B"]
-        assert result["A"] == 75.0
-        assert result["B"] == 25.0
-
-    def test_excludes_fully_present_columns(self):
-        df = pd.DataFrame({"A": [1, 2, 3]})
-        result = missingness_summary(df)
-        assert result.empty
-
-
-class TestTopMoverCorrelations:
-    def test_returns_square_matrix_of_present_columns(self):
-        df = pd.DataFrame(
-            {
-                "OverallQual": [1, 3, 5, 7, 9],
-                "GrLivArea": [1000, 1200, 1400, 1600, 1800],
-            }
-        )
-        result = top_mover_correlations(df)
-        assert set(result.columns) == {"OverallQual", "GrLivArea"}
-        assert result.shape[0] == result.shape[1]
-
-    def test_ignores_movers_not_present_in_df(self):
-        df = pd.DataFrame({"OverallQual": [1, 2, 3], "SomeOtherColumn": [1, 2, 3]})
-        result = top_mover_correlations(df)
-        assert list(result.columns) == ["OverallQual"]
 
 
 class TestGetFeatureImportances:
@@ -203,35 +148,3 @@ class TestBuildPredictRow:
         df = make_valid_df()
         row = build_predict_row(df, {})
         assert len(row) == 1
-
-
-class TestLoadDatasetFromUrl:
-    def _mock_response(self, headers=None, chunks=None):
-        response = MagicMock()
-        response.headers = headers or {}
-        response.raise_for_status.return_value = None
-        response.iter_content.return_value = chunks or []
-        response.__enter__.return_value = response
-        response.__exit__.return_value = False
-        return response
-
-    def test_rejects_when_content_length_header_exceeds_cap(self):
-        response = self._mock_response(headers={"Content-Length": str(MAX_URL_DOWNLOAD_BYTES + 1)})
-        with patch("frontend.ml_service.requests.get", return_value=response):
-            with pytest.raises(ValueError, match="too large"):
-                load_dataset_from_url("http://example.com/big.csv")
-
-    def test_rejects_when_streamed_bytes_exceed_cap_without_content_length(self):
-        big_chunk = b"x" * (MAX_URL_DOWNLOAD_BYTES // 2 + 1)
-        response = self._mock_response(chunks=[big_chunk, big_chunk])
-        with patch("frontend.ml_service.requests.get", return_value=response):
-            with pytest.raises(ValueError, match="exceeded"):
-                load_dataset_from_url("http://example.com/big.csv")
-
-    def test_successfully_parses_a_small_csv(self):
-        csv_bytes = b"Id,SalePrice\n1,200000\n2,150000\n"
-        response = self._mock_response(chunks=[csv_bytes])
-        with patch("frontend.ml_service.requests.get", return_value=response):
-            df = load_dataset_from_url("http://example.com/small.csv")
-        assert list(df.columns) == ["Id", "SalePrice"]
-        assert len(df) == 2

@@ -7,18 +7,15 @@ import pandas as pd
 import streamlit as st
 from matplotlib.patches import Patch
 
-from ml_service import (
+import api_client
+from eda_service import (
     CORR_LEGEND,
     MISSINGNESS_COLUMNS,
-    MODELS,
     NA_IS_CATEGORY,
+    TARGET_COLUMN,
     DataValidationError,
-    build_predict_row,
-    load_dataset_from_upload,
-    load_dataset_from_url,
     missingness_summary,
     top_mover_correlations,
-    train_model,
     validate_data,
 )
 from styles import CSS
@@ -30,8 +27,12 @@ st.html(CSS)
 
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
-if "dataset" not in st.session_state:
-    st.session_state.dataset = None
+if "dataset_id" not in st.session_state:
+    st.session_state.dataset_id = None
+if "dataset_summary" not in st.session_state:
+    st.session_state.dataset_summary = None
+if "_uploaded_file_id" not in st.session_state:
+    st.session_state._uploaded_file_id = None
 if "dataset_name" not in st.session_state:
     st.session_state.dataset_name = "ames-house-prices"
 if "models" not in st.session_state:
@@ -39,8 +40,8 @@ if "models" not in st.session_state:
 if "page" not in st.session_state:
     st.session_state.page = "Upload"
 
-_cached_load_from_url = st.cache_data(load_dataset_from_url)
-_cached_load_from_upload = st.cache_data(load_dataset_from_upload)
+_cached_get_full_dataset = st.cache_data(api_client.get_full_dataset)
+_cached_list_algorithms = st.cache_data(api_client.list_algorithms)
 _cached_missingness_summary = st.cache_data(missingness_summary)
 _cached_top_mover_correlations = st.cache_data(top_mover_correlations)
 
@@ -75,8 +76,11 @@ def render_upload():
             uploaded = st.file_uploader(
                 "Drag and drop a CSV file here, or browse", type="csv"
             )
-            if uploaded is not None:
-                _try_load(lambda: _cached_load_from_upload(uploaded))
+            if uploaded is not None and uploaded.file_id != st.session_state._uploaded_file_id:
+                st.session_state._uploaded_file_id = uploaded.file_id
+                _try_load(lambda: api_client.upload_dataset(
+                    st.session_state.session_id, uploaded, st.session_state.dataset_name, TARGET_COLUMN
+                ))
 
             st.html("<strong><div class='divider'>OR PASTE A URL</div></strong>")
 
@@ -90,45 +94,64 @@ def render_upload():
                 spacer(35)
                 fetch_clicked = st.button("Fetch dataset", use_container_width=True)
             if fetch_clicked and url:
-                _try_load(lambda: _cached_load_from_url(url))
+                _try_load(lambda: api_client.fetch_dataset_from_url(
+                    st.session_state.session_id, url, st.session_state.dataset_name, TARGET_COLUMN
+                ))
 
             name_col, target_col = st.columns(2)
             with name_col:
                 st.session_state.dataset_name = st.text_input("DATASET NAME", value=st.session_state.dataset_name)
             with target_col:
-                st.text_input("TARGET COLUMN", placeholder="Price", disabled=True)
+                st.text_input("TARGET COLUMN", value=TARGET_COLUMN, disabled=True)
 
-        current = st.session_state.dataset
-        if current is not None:
-            badge(f"Dataset successfully uploaded: {current.shape[0]:,} rows × {current.shape[1]} columns", large=True)
+        summary = st.session_state.dataset_summary
+        if summary is not None:
+            badge(f"Dataset successfully uploaded: {summary['n_rows']:,} rows × {summary['n_columns']} columns", large=True)
 
         if st.button("Continue to Explore data →", type="primary", use_container_width=True):
-            if st.session_state.dataset is None:
+            if st.session_state.dataset_id is None:
                 st.error("Dataset not added.")
             else:
                 st.session_state.page = "Explore"
                 st.rerun()
 
 
-def _try_load(loader):
+def _try_load(persist):
+    """`persist` calls the backend (upload or from-url) and returns its DatasetOut dict."""
     try:
-        df = loader()
-        validate_data(df, require_target=True)
+        response = persist()
+    except api_client.BackendUnreachableError as e:
+        st.error(f"Can't reach the backend: {e}")
+        return
+    except api_client.ApiError as e:
+        st.error(f"Couldn't save that dataset: {e}")
+        return
+
+    dataset_id = response["id"]
+    try:
+        preview = api_client.get_dataset(st.session_state.session_id, dataset_id, limit=1)
+        validate_data(pd.DataFrame(preview["rows"], columns=preview["columns"]), require_target=True)
     except DataValidationError as e:
         st.error(f"This doesn't look like valid Ames housing data: {e}")
         return
-    except Exception as e:
-        st.error(f"Couldn't load that dataset: {e}")
+    except api_client.ApiError as e:
+        st.error(f"Uploaded, but couldn't verify the dataset: {e}")
         return
-    st.session_state.dataset = df
+
+    st.session_state.dataset_id = dataset_id
+    st.session_state.dataset_summary = {"n_rows": response["n_rows"], "n_columns": len(preview["columns"])}
     st.session_state.models = {}
 
 
 def _require_dataset() -> pd.DataFrame | None:
-    if st.session_state.dataset is None:
+    if st.session_state.dataset_id is None:
         st.warning("Upload a dataset first — see the Upload page.")
         return None
-    return st.session_state.dataset
+    try:
+        return _cached_get_full_dataset(st.session_state.session_id, st.session_state.dataset_id)
+    except api_client.ApiError as e:
+        st.error(f"Couldn't load the dataset from the backend: {e}")
+        return None
 
 
 def render_eda():
@@ -225,15 +248,31 @@ def render_train():
     if df is None:
         return
 
-    names = list(MODELS.keys())
+    try:
+        names = _cached_list_algorithms()
+    except api_client.ApiError as e:
+        st.error(f"Couldn't load available algorithms: {e}")
+        return
+
     algo = st.radio("Algorithm", names, horizontal=True, label_visibility="collapsed")
 
     train_clicked = st.button("Train Model", type="primary")
 
     if train_clicked:
         with st.spinner("Training..."):
-            result = train_model(df, algo)
-        st.session_state.models[algo] = result
+            try:
+                result = api_client.train(st.session_state.session_id, st.session_state.dataset_id, algo)
+            except api_client.BackendUnreachableError as e:
+                st.error(f"Can't reach the backend: {e}")
+            except api_client.ApiError as e:
+                st.error(f"Training failed: {e}")
+            else:
+                st.session_state.models[algo] = {
+                    "model_id": result["model_id"],
+                    "metrics": result["metrics"],
+                    "best_params": result["best_params"],
+                    "importances": result["importances"],
+                }
 
     if algo in st.session_state.models:
         with st.container(border=True):
@@ -292,8 +331,10 @@ def render_predict():
     with right:
         if predict_clicked:
             try:
-                row = build_predict_row(
-                    df,
+                model_id = st.session_state.models[model_name]["model_id"]
+                result = api_client.predict(
+                    st.session_state.session_id,
+                    model_id,
                     {
                         "Neighborhood": neighborhood,
                         "OverallQual": overall_qual,
@@ -308,17 +349,17 @@ def render_predict():
                         "KitchenQual": kitchen_qual,
                     },
                 )
-                pipeline = st.session_state.models[model_name]["pipeline"]
-                log_price = pipeline.predict(row)[0]
-                price = float(np.expm1(log_price))
-            except Exception as e:
+                price = result["prediction"]
+            except api_client.ApiError as e:
                 st.error(f"Couldn't generate a prediction: {e}")
             else:
                 with st.container(border=True):
                     st.subheader("Feature importance")
                     importances = st.session_state.models[model_name]["importances"]
+                    labels = list(importances.keys())[::-1]
+                    values = list(importances.values())[::-1]
                     fig_imp, ax_imp = plt.subplots(figsize=(7, 4))
-                    ax_imp.barh(importances.index[::-1], importances.values[::-1], color=COLORS["teal-600"])
+                    ax_imp.barh(labels, values, color=COLORS["teal-600"])
                     ax_imp.set_xlabel("Importance (increase in RMSE when shuffled)")
                     ax_imp.spines[["top", "right"]].set_visible(False)
                     st.pyplot(fig_imp)

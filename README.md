@@ -40,6 +40,30 @@ ports: ["5433:5432"]
   credentials refer to their database, not yours.
 - Use Postgres 17 locally. CI and Neon both run 17; other versions are untested.
 
+## Run the frontend
+
+The Streamlit UI is a separate process from the FastAPI backend, and talks to
+it over HTTP — it doesn't load data or train models on its own. Both need to
+be running together:
+
+**Terminal 1** — backend (see [Local setup](#local-setup) above):
+
+```bash
+cd backend && uv run uvicorn app.main:app --reload
+```
+
+**Terminal 2** — frontend:
+
+```bash
+uv run streamlit run frontend/app.py
+```
+
+Then open http://localhost:8501.
+
+The frontend looks for the backend at `http://localhost:8000` by default —
+set `BACKEND_URL` in `.env` to point it elsewhere (a deployed backend, a
+different port, etc).
+
 ## Git flow
 
 Branches off `dev`:
