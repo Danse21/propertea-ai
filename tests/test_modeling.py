@@ -5,8 +5,19 @@ from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from app.services.modeling import MODELS, build_predict_row, get_feature_importances, train_model
-from app.services.preprocessing import FEATURES_COLUMNS, TARGET_COLUMN, engineer_features
+from app.services.modeling import (
+    MODELS,
+    build_predict_row,
+    compute_defaults,
+    get_feature_importances,
+    train_model,
+)
+from app.services.preprocessing import (
+    FEATURES_COLUMNS,
+    TARGET_COLUMN,
+    engineer_features,
+    prepare_data,
+)
 
 
 def make_valid_df(n_rows: int = 5) -> pd.DataFrame:
@@ -82,7 +93,7 @@ class TestTrainModel:
     def test_returned_pipeline_can_predict_a_single_row(self, algo):
         df = make_training_df()
         result = train_model(df, algo)
-        row = build_predict_row(df, {"OverallQual": 8})
+        row = build_predict_row(result["defaults"], {"OverallQual": 8})
         prediction = result["pipeline"].predict(row)
         assert len(prediction) == 1
 
@@ -131,13 +142,13 @@ class TestGetFeatureImportances:
 class TestBuildPredictRow:
     def test_overrides_win_over_defaults(self):
         df = make_valid_df()
-        row = build_predict_row(df, {"OverallQual": 9})
+        row = build_predict_row(compute_defaults(prepare_data(df)), {"OverallQual": 9})
         assert row["OverallQual"].iloc[0] == 9
 
     def test_total_sf_and_house_age_match_engineer_features_exactly(self):
         df = make_valid_df()
         overrides = {"1stFlrSF": 1200, "2ndFlrSF": 1000, "TotalBsmtSF": 1100, "YearBuilt": 2005}
-        row = build_predict_row(df, overrides)
+        row = build_predict_row(compute_defaults(prepare_data(df)), overrides)
 
         expected = engineer_features(row.drop(columns=["TotalSF", "HouseAge"]))
         assert row["TotalSF"].iloc[0] == expected["TotalSF"].iloc[0]
@@ -146,5 +157,5 @@ class TestBuildPredictRow:
 
     def test_returns_single_row(self):
         df = make_valid_df()
-        row = build_predict_row(df, {})
+        row = build_predict_row(compute_defaults(prepare_data(df)), {})
         assert len(row) == 1
