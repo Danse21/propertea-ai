@@ -97,13 +97,7 @@ def get_feature_importances(pipeline: Pipeline, X: pd.DataFrame, y: pd.Series, t
 
 
 def compute_defaults(prepared_df: pd.DataFrame) -> dict:
-    """Median (numeric) or mode (categorical) per feature — the fallback for any
-    field a prediction request doesn't override.
-
-    Takes an already-prepared frame so train_model() doesn't pay for a second
-    clean+engineer pass. Computed once at train time and stored in the model
-    artifact, so predict() never reloads the dataset.
-    """
+    """Median (numeric) or mode (categorical) per feature, from an already-prepared frame."""
     defaults = {}
     for col in prepared_df.columns:
         if col in ("Id", TARGET_COLUMN):
@@ -116,11 +110,7 @@ def compute_defaults(prepared_df: pd.DataFrame) -> dict:
 
 
 def build_predict_row(defaults: dict, overrides: dict) -> pd.DataFrame:
-    """One input row: train-time defaults filled in, overrides layered on top.
-
-    engineer_features() runs last so TotalSF/HouseAge are recomputed from the
-    overrides instead of being inherited from the defaults.
-    """
+    """One input row: train-time defaults filled in, overrides layered on top."""
     row = dict(defaults)
     row.update(overrides)
 
