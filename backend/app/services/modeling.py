@@ -83,6 +83,7 @@ def train_model(raw_df: pd.DataFrame, algo: str) -> dict:
         "metrics": {"rmse_log": round(float(rmse), 3)},
         "importances": importances,
         "best_params": best_params,
+        "defaults": compute_defaults(df),
     }
 
 
@@ -95,19 +96,21 @@ def get_feature_importances(pipeline: Pipeline, X: pd.DataFrame, y: pd.Series, t
     return importances.sort_values(ascending=False).head(top_n)
 
 
-def build_predict_row(raw_df: pd.DataFrame, overrides: dict) -> pd.DataFrame:
-    """One input row: dataset medians/modes filled in, overrides layered on top."""
-    df = prepare_data(raw_df, drop_outliers=True, require_target=True)
-
+def compute_defaults(prepared_df: pd.DataFrame) -> dict:
+    """Median (numeric) or mode (categorical) per feature, from an already-prepared frame."""
     defaults = {}
-    for col in df.columns:
+    for col in prepared_df.columns:
         if col in ("Id", TARGET_COLUMN):
             continue
-        if pd.api.types.is_numeric_dtype(df[col]):
-            defaults[col] = df[col].median()
+        if pd.api.types.is_numeric_dtype(prepared_df[col]):
+            defaults[col] = prepared_df[col].median()
         else:
-            defaults[col] = df[col].mode().iloc[0]
+            defaults[col] = prepared_df[col].mode().iloc[0]
+    return defaults
 
+
+def build_predict_row(defaults: dict, overrides: dict) -> pd.DataFrame:
+    """One input row: train-time defaults filled in, overrides layered on top."""
     row = dict(defaults)
     row.update(overrides)
 

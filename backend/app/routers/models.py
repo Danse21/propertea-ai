@@ -61,7 +61,7 @@ def train(
         raise HTTPException(400, f"Can't train on this dataset: {exc}") from exc
 
     artifact_buf = io.BytesIO()
-    joblib.dump(result["pipeline"], artifact_buf)
+    joblib.dump({"pipeline": result["pipeline"], "defaults": result["defaults"]}, artifact_buf)
 
     model = Model(
         dataset_id=dataset_id,
@@ -97,13 +97,9 @@ def predict(
     x_session_id: SessionIdDep = None,
 ) -> PredictResponse:
     model = _get_owned_model(db, model_id, x_session_id)
-    pipeline = joblib.load(io.BytesIO(model.artifact))
+    bundle = joblib.load(io.BytesIO(model.artifact))
 
-    df = rows_to_dataframe(db, model.dataset_id)
-    try:
-        row = modeling.build_predict_row(df, body.overrides)
-    except DataValidationError as exc:
-        raise HTTPException(400, f"Can't predict from this dataset: {exc}") from exc
+    row = modeling.build_predict_row(bundle["defaults"], body.overrides)
 
-    log_price = pipeline.predict(row)[0]
+    log_price = bundle["pipeline"].predict(row)[0]
     return PredictResponse(prediction=float(np.expm1(log_price)))
