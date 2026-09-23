@@ -1,3 +1,4 @@
+import io
 from datetime import datetime
 
 import matplotlib.pyplot as plt
@@ -9,10 +10,13 @@ from matplotlib.patches import Patch
 import api_client
 from eda_service import (
     CORR_LEGEND,
+    HEATMAP,
     MISSINGNESS_COLUMNS,
     NA_IS_CATEGORY,
+    PLOT_KINDS,
     TARGET_COLUMN,
     DataValidationError,
+    build_plot,
     missingness_summary,
     top_mover_correlations,
     validate_data,
@@ -40,6 +44,10 @@ if "models" not in st.session_state:
     st.session_state.models = {}
 if "page" not in st.session_state:
     st.session_state.page = "Datasets"
+if "prep_df" not in st.session_state:
+    st.session_state.prep_df = None
+if "prep_source" not in st.session_state:
+    st.session_state.prep_source = None
 
 _cached_get_full_dataset = st.cache_data(api_client.get_full_dataset)
 _cached_list_algorithms = st.cache_data(api_client.list_algorithms)
@@ -50,14 +58,16 @@ _cached_top_mover_correlations = st.cache_data(top_mover_correlations)
 def sidebar():
     with st.sidebar:
         sidebar_brand()
-        for page in PAGES:
-            active = st.session_state.page == page
-            wrapper_class = "nav-active" if active else ""
-            st.markdown(f"<div class='{wrapper_class}'>", unsafe_allow_html=True)
-            if st.button(page, key=f"nav-{page}", use_container_width=True):
-                st.session_state.page = page
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+        for group, pages in NAV.items():
+            st.html(f"<div class='nav-group'>{group}</div>")
+            for page in pages:
+                active = st.session_state.page == page
+                wrapper_class = "nav-active" if active else ""
+                st.markdown(f"<div class='{wrapper_class}'>", unsafe_allow_html=True)
+                if st.button(page, key=f"nav-{page}", use_container_width=True):
+                    st.session_state.page = page
+                    st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown(
             f"<div class='session-badge'><span class='lbl'>SIGNED IN</span>"
@@ -80,6 +90,8 @@ def _sign_out():
     st.session_state.dataset_summary = None
     st.session_state._uploaded_file_id = None
     st.session_state.models = {}
+    st.session_state.prep_df = None
+    st.session_state.prep_source = None
     st.session_state.page = "Datasets"
     _cached_get_full_dataset.clear()
     st.rerun()
@@ -576,14 +588,153 @@ def render_predict():
             note("Select specifications and click Predict Price.")
 
 
+def _prep_frame() -> pd.DataFrame | None:
+    df = _require_dataset()
+    if df is None:
+        return None
+    if st.session_state.prep_df is None or st.session_state.prep_source != st.session_state.dataset_id:
+        st.session_state.prep_df = df.copy()
+        st.session_state.prep_source = st.session_state.dataset_id
+        st.session_state.pop("prep_shown", None)
+    return st.session_state.prep_df
+
+
+def render_prepare():
+    crumb("Prepare data")
+    st.title("Prepare data")
+    st.html("<p class='subtitle'>Trim columns, inspect the frame, plot it, then save it as a new dataset</p>")
+
+    prep = _prep_frame()
+    if prep is None:
+        return
+
+    all_columns = list(prep.columns)
+
+    with st.container(border=True):
+        st.subheader("Columns")
+        st.caption("Unticking a column hides it here. Dropping removes it from the data you save.")
+        shown = st.multiselect("Columns in view", all_columns, default=all_columns, key="prep_shown")
+        hidden = [c for c in all_columns if c not in shown]
+
+        drop_col, reset_col = st.columns(2)
+        with drop_col:
+            if st.button(
+                f"Drop {len(hidden)} hidden column{'s' if len(hidden) != 1 else ''}",
+                disabled=not hidden,
+                use_container_width=True,
+            ):
+                st.session_state.prep_df = prep.drop(columns=hidden)
+                st.session_state.pop("prep_shown", None)
+                st.rerun()
+        with reset_col:
+            if st.button("Reset to uploaded data", use_container_width=True):
+                st.session_state.prep_df = None
+                st.session_state.pop("prep_shown", None)
+                st.rerun()
+
+        st.caption(f"{len(prep):,} rows \u00b7 {len(all_columns)} columns kept \u00b7 {len(shown)} shown")
+        st.dataframe(prep[shown], use_container_width=True, height=360)
+
+    if not shown:
+        note("Tick at least one column to inspect or plot it.")
+        return
+
+    with st.container(border=True):
+        st.subheader("Inspect")
+        head_tab, info_tab, describe_tab, missing_tab = st.tabs(
+            ["head()", "info()", "describe()", "Missing values"]
+        )
+        with head_tab:
+            n = st.slider("Rows", 1, 50, 5, key="prep_head_n")
+            st.dataframe(prep[shown].head(n), use_container_width=True)
+        with info_tab:
+            buffer = io.StringIO()
+            prep[shown].info(buf=buffer)
+            st.code(buffer.getvalue(), language="text")
+        with describe_tab:
+            numeric_only = st.toggle("Numeric columns only", value=True, key="prep_desc_numeric")
+            described = prep[shown].describe() if numeric_only else prep[shown].describe(include="all")
+            st.dataframe(described.T, use_container_width=True)
+        with missing_tab:
+            miss = missingness_summary(prep[shown])
+            if miss.empty:
+                st.caption("No missing values.")
+            else:
+                st.dataframe(miss.rename("% missing"), use_container_width=True)
+
+    with st.container(border=True):
+        st.subheader("Plot")
+        kind = st.selectbox("Plot type", PLOT_KINDS, key="prep_plot_kind")
+        x = y = hue = None
+        if kind != HEATMAP:
+            none_label = "\u2014"
+            options = [none_label, *shown]
+            x_col, y_col, hue_col = st.columns(3)
+            with x_col:
+                x = st.selectbox("X", options, key="prep_plot_x")
+            with y_col:
+                y = st.selectbox("Y", options, key="prep_plot_y")
+            with hue_col:
+                hue = st.selectbox("Colour by", options, key="prep_plot_hue")
+            x, y, hue = (None if v == none_label else v for v in (x, y, hue))
+
+        if kind == HEATMAP or x or y:
+            try:
+                fig = build_plot(prep, kind, x, y, hue)
+            except (DataValidationError, ValueError, TypeError) as e:
+                st.error(f"Couldn't draw that plot: {e}")
+            else:
+                st.pyplot(fig)
+                plt.close(fig)
+        else:
+            note("Pick an X or Y column to draw a plot.")
+
+    with st.container(border=True):
+        st.subheader("Save")
+        target = TARGET_COLUMN if TARGET_COLUMN in prep.columns else all_columns[0]
+        st.caption(f"Saved as a new dataset with target column {target}.")
+        name_col, button_col = st.columns([3, 1])
+        with name_col:
+            new_name = st.text_input("Save as", value=f"{st.session_state.dataset_name}-prepared")
+        with button_col:
+            spacer(35)
+            save_clicked = st.button("Save dataset", type="primary", use_container_width=True)
+
+        if save_clicked:
+            if not new_name.strip():
+                st.error("Give the dataset a name.")
+            else:
+                try:
+                    saved = api_client.upload_dataset(
+                        st.session_state.token,
+                        prep.to_csv(index=False).encode(),
+                        new_name.strip(),
+                        target,
+                    )
+                except api_client.BackendUnreachableError as e:
+                    st.error(f"Can't reach the backend: {e}")
+                except api_client.ApiError as e:
+                    st.error(f"Couldn't save that dataset: {e}")
+                else:
+                    badge(
+                        f"Saved as \u201c{new_name.strip()}\u201d \u2014 "
+                        f"{saved['n_rows']:,} rows \u00d7 {len(prep.columns)} columns",
+                        large=True,
+                    )
+
+
 ROUTES = {
     "Datasets": render_datasets,
     "Upload": render_upload,
     "Explore": render_eda,
     "Train": render_train,
     "Predict": render_predict,
+    "Prepare": render_prepare,
 }
-PAGES = list(ROUTES)
+NAV = {
+    "v1 \u00b7 guided flow": ["Datasets", "Upload", "Explore", "Train", "Predict"],
+    "Data lab": ["Prepare"],
+}
 
 if st.session_state.token is None:
     render_auth()

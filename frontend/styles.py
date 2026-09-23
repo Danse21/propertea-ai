@@ -155,6 +155,14 @@ html, body, [class*="css"] {
     border-bottom: 1px solid var(--color-clay-200);
     margin-bottom: var(--space-5);
 }
+.nav-group {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: 0.55;
+    margin: var(--space-5) 0 var(--space-2) 15%;
+}
 [data-testid="stSidebar"] .stButton button {
     width: 70%;
     display: block;
