@@ -59,21 +59,25 @@ def logout(session_id: str) -> None:
     _request("POST", "/auth/logout", headers=_headers(session_id))
 
 
-def upload_dataset(session_id: str, file, name: str, target_column: str) -> dict:
+def upload_dataset(session_id: str, file, name: str, target_column: str | None = None) -> dict:
     if isinstance(file, (bytes, bytearray)):
         file = io.BytesIO(file)
     filename = getattr(file, "name", "dataset.csv")
+
+    data = {"name": name}
+    if target_column:
+        data["target_column"] = target_column
 
     return _request(
         "POST",
         "/datasets/upload",
         files={"file": (filename, file, "text/csv")},
-        data={"name": name, "target_column": target_column},
+        data=data,
         headers=_headers(session_id),
     )
 
 
-def fetch_dataset_from_url(session_id: str, url: str, name: str, target_column: str) -> dict:
+def fetch_dataset_from_url(session_id: str, url: str, name: str, target_column: str | None = None) -> dict:
     return _request(
         "POST",
         "/datasets/from-url",

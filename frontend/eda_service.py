@@ -1,7 +1,9 @@
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import pandas as pd
+import seaborn as sns
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -37,6 +39,14 @@ CORR_LEGEND = [
 ]
 
 
+def is_ames_shaped(df: pd.DataFrame, *, require_target: bool = True) -> bool:
+    try:
+        validate_data(df, require_target=require_target)
+    except DataValidationError:
+        return False
+    return True
+
+
 def missingness_summary(df: pd.DataFrame) -> pd.Series:
     pct = (df.isna().sum() / len(df) * 100).round(1)
     return pct[pct > 0].sort_values(ascending=False)
@@ -45,3 +55,45 @@ def missingness_summary(df: pd.DataFrame) -> pd.Series:
 def top_mover_correlations(df: pd.DataFrame) -> pd.DataFrame:
     cols = [c for c in CORR_MOVERS if c in df.columns]
     return df[cols].corr()
+
+
+SEABORN_PLOTS = {
+    "Histogram": sns.histplot,
+    "Box plot": sns.boxplot,
+    "Violin plot": sns.violinplot,
+    "Scatter plot": sns.scatterplot,
+    "Line plot": sns.lineplot,
+    "Bar plot": sns.barplot,
+    "Count plot": sns.countplot,
+}
+
+HEATMAP = "Correlation heatmap"
+PLOT_KINDS = [HEATMAP, *SEABORN_PLOTS]
+
+
+def build_plot(
+    df: pd.DataFrame,
+    kind: str,
+    x: str | None = None,
+    y: str | None = None,
+    hue: str | None = None,
+):
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    if kind == HEATMAP:
+        numeric = df.select_dtypes("number")
+        if numeric.shape[1] < 2:
+            plt.close(fig)
+            raise DataValidationError("need at least two numeric columns")
+        sns.heatmap(numeric.corr(), ax=ax, cmap="crest")
+    elif kind in SEABORN_PLOTS:
+        if kind == "Count plot" and x is not None:
+            y = None
+        SEABORN_PLOTS[kind](data=df, x=x, y=y, hue=hue, ax=ax)
+        ax.spines[["top", "right"]].set_visible(False)
+        if x and df[x].nunique() > 8 and not pd.api.types.is_numeric_dtype(df[x]):
+            ax.tick_params(axis="x", rotation=45)
+    else:
+        plt.close(fig)
+        raise DataValidationError(f"unknown plot type {kind!r}")
+    fig.tight_layout()
+    return fig

@@ -28,7 +28,7 @@ class AuthResponse(BaseModel):
 class DatasetCreateFromUrl(BaseModel):
     url: HttpUrl
     name: str = Field(min_length=1, max_length=255)
-    target_column: str = Field(min_length=1, max_length=255)
+    target_column: str | None = Field(default=None, min_length=1, max_length=255)
 
 
 class DatasetOut(BaseModel):
@@ -37,7 +37,7 @@ class DatasetOut(BaseModel):
     id: int
     name: str
     source_url: str | None
-    target_column: str
+    target_column: str | None
     n_rows: int
     created_at: datetime
     updated_at: datetime
