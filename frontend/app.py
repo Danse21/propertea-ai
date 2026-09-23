@@ -324,6 +324,7 @@ def render_predict():
             second_flr_sf = st.number_input("Second Floor SF", min_value=0, max_value=2000, value=1000)
             gr_liv_area = first_flr_sf + second_flr_sf
             total_bsmt_sf = st.number_input("Total Basement SF", min_value=0, max_value=6000, value=1100)
+            total_sf = total_bsmt_sf + first_flr_sf + second_flr_sf
             full_bath = st.slider("Full Bathrooms", 0, 4, 2)
             year_built = st.number_input("Year Built", min_value=1870, max_value=2026, value=2005)
             year_remod = st.number_input("Year Last Renovated", min_value=1870, max_value=2026, value=2005)
@@ -370,12 +371,13 @@ def render_predict():
 
                 with st.container(border=True):
                     st.subheader("Where this prediction falls")
+                    df_total_sf = df["TotalBsmtSF"] + df["1stFlrSF"] + df["2ndFlrSF"]
                     fig, ax = plt.subplots(figsize=(7, 5))
-                    ax.scatter(df["GrLivArea"], df["SalePrice"], alpha=0.35, color=COLORS["teal-600"], label="Training houses")
-                    ax.scatter([gr_liv_area], [price], s=140, color=COLORS["orange-500"], edgecolor=COLORS["white"], linewidth=1.5, zorder=5, label="Your prediction")
+                    ax.scatter(df_total_sf, df["SalePrice"], alpha=0.35, color=COLORS["teal-600"], label="Historical sales")
+                    ax.scatter([total_sf], [price], s=140, color=COLORS["orange-500"], edgecolor=COLORS["white"], linewidth=1.5, zorder=5, label="Your estimate")
                     ax.axhline(price, color=COLORS["orange-500"], linestyle="--", linewidth=1, alpha=0.6)
-                    ax.axvline(gr_liv_area, color=COLORS["orange-500"], linestyle="--", linewidth=1, alpha=0.6)
-                    ax.set_xlabel("Above Grade Living Area (sq ft)")
+                    ax.axvline(total_sf, color=COLORS["orange-500"], linestyle="--", linewidth=1, alpha=0.6)
+                    ax.set_xlabel("Total Square Footage (sq ft)")
                     ax.set_ylabel("SalePrice")
                     ax.spines[["top", "right"]].set_visible(False)
                     ax.legend(loc="upper left", fontsize=9, frameon=False)
@@ -383,7 +385,7 @@ def render_predict():
                     plt.close(fig)
 
                 with st.container(border=True):
-                    st.metric("Estimated Price", f"${price:,.0f}", help=f"{model_name} on {gr_liv_area:,} sq ft · {neighborhood}")
+                    st.metric("Estimated Price", f"${price:,.0f}", help=f"{model_name} on {total_sf:,} sq ft · {neighborhood}")
         else:
             st.info("Select specifications and click Predict Price.")
 
