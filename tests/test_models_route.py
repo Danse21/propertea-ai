@@ -58,6 +58,7 @@ def test_train_happy_path(client, db_session):
     # Same regression guard as test_modeling.py: catches an accidental extra
     # sqrt() inflating a small RMSE.
     assert 0 < body["metrics"]["rmse_log"] < 1.0
+    assert -1.0 < body["metrics"]["r2"] <= 1.0
     assert body["best_params"] is None
     assert isinstance(body["importances"], dict) and len(body["importances"]) > 0
 
@@ -106,13 +107,13 @@ def _train(client, ds_id, session="s1", algo="Linear Regression"):
 def test_list_models_for_dataset(client):
     ds_id = _upload_training_dataset(client).json()["id"]
     _train(client, ds_id, algo="Linear Regression")
-    _train(client, ds_id, algo="Decision Tree")
+    _train(client, ds_id, algo="Ridge")
 
     r = client.get(f"/datasets/{ds_id}/models", headers={"X-Session-Id": "s1"})
     assert r.status_code == 200
     body = r.json()
     assert len(body) == 2
-    assert {m["algo"] for m in body} == {"Linear Regression", "Decision Tree"}
+    assert {m["algo"] for m in body} == {"Linear Regression", "Ridge"}
     assert "artifact" not in body[0]
 
 
@@ -138,8 +139,6 @@ def test_predict_happy_path_and_shifts_with_overall_qual(client):
     )
     assert low.status_code == 200, low.text
     assert high.status_code == 200, high.text
-    # Synthetic target is 80_000 + OverallQual * 15_000 + ... — a strong,
-    # reliably-recoverable positive relationship, even through noise.
     assert high.json()["prediction"] > low.json()["prediction"]
 
 

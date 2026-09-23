@@ -1,4 +1,3 @@
-
 import uuid
 
 import matplotlib.pyplot as plt
@@ -282,10 +281,25 @@ def render_train():
             st.subheader(f"Result — {algo}")
             metrics = st.session_state.models[algo]["metrics"]
             with st.container(border=True):
-                st.html(f"<div class='rmse-box-label'>RMSE: {metrics['rmse_log']}</div>")
+                st.html(
+                    f"<div class='rmse-box-label'>RMSE: {metrics['rmse_log']} &nbsp;·&nbsp; "
+                    f"R²: {metrics['r2']}</div>"
+                )
             spacer(36)
             badge("Model successfully trained and saved!", large=True)
             spacer(24)
+
+    if st.session_state.models:
+        spacer(24)
+        with st.container(border=True):
+            st.subheader("Model comparison")
+            comparison = pd.DataFrame(
+                [
+                    {"Model": name, "RMSE (log price)": m["metrics"]["rmse_log"], "R²": m["metrics"]["r2"]}
+                    for name, m in st.session_state.models.items()
+                ]
+            )
+            st.dataframe(comparison, hide_index=True, use_container_width=True)
 
     spacer(32)
     _left_pad, main_col, _right_pad = st.columns([1, 8, 1])
