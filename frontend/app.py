@@ -178,6 +178,7 @@ def render_eda():
         for ax in axes:
             ax.spines[["top", "right"]].set_visible(False)
         st.pyplot(fig)
+        plt.close(fig)
 
     with st.container(border=True):
         st.subheader("Missingness per column")
@@ -200,6 +201,7 @@ def render_eda():
             ]
             ax2.legend(handles=legend_handles, loc="lower right", fontsize=8, frameon=False)
             st.pyplot(fig2)
+            plt.close(fig2)
         else:
             st.caption("No missing values in this dataset.")
 
@@ -222,6 +224,7 @@ def render_eda():
                 )
         fig3.colorbar(im, ax=ax3, fraction=0.046, pad=0.04)
         st.pyplot(fig3, width="content")
+        plt.close(fig3)
 
         legend_cols = st.columns(2)
         for idx, (abbr, raw, desc) in enumerate(CORR_LEGEND):
@@ -364,6 +367,7 @@ def render_predict():
                     ax_imp.set_xlabel("Importance (increase in RMSE when shuffled)")
                     ax_imp.spines[["top", "right"]].set_visible(False)
                     st.pyplot(fig_imp)
+                    plt.close(fig_imp)
 
                 with st.container(border=True):
                     st.subheader("Where this prediction falls")
@@ -378,6 +382,7 @@ def render_predict():
                     ax.spines[["top", "right"]].set_visible(False)
                     ax.legend(loc="upper left", fontsize=9, frameon=False)
                     st.pyplot(fig)
+                    plt.close(fig)
 
                 with st.container(border=True):
                     st.metric("Estimated Price", f"${price:,.0f}", help=f"{model_name} on {total_sf:,} sq ft · {neighborhood}")

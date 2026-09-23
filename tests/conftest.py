@@ -8,17 +8,26 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db import Base, get_db
+from app.db import Base, _normalize, get_db 
 from app.main import app
+
+
+TEST_DATABASE_URL = _normalize(os.environ["DATABASE_URL"])
+
+
+def _make_engine():
+    if TEST_DATABASE_URL.startswith("sqlite"):
+        return create_engine(
+            TEST_DATABASE_URL,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    return create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
 
 
 @pytest.fixture
 def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+    engine = _make_engine()
     Base.metadata.create_all(engine)
     TestSession = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     session = TestSession()
@@ -26,6 +35,7 @@ def db_session():
         yield session
     finally:
         session.close()
+        Base.metadata.drop_all(engine)
         engine.dispose()
 
 
