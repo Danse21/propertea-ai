@@ -53,6 +53,8 @@ if "prep_df" not in st.session_state:
     st.session_state.prep_df = None
 if "prep_source" not in st.session_state:
     st.session_state.prep_source = None
+if "prep_history" not in st.session_state:
+    st.session_state.prep_history = []
 
 _cached_get_full_dataset = st.cache_data(api_client.get_full_dataset)
 _cached_list_algorithms = st.cache_data(api_client.list_algorithms)
@@ -97,6 +99,7 @@ def _sign_out():
     st.session_state.models = {}
     st.session_state.prep_df = None
     st.session_state.prep_source = None
+    st.session_state.prep_history = []
     st.session_state.page = "Datasets"
     _cached_get_full_dataset.clear()
     st.rerun()
@@ -168,6 +171,7 @@ def _select_dataset(ds: dict, models: list[dict], goto: str | None = None) -> No
     }
     st.session_state.prep_df = None
     st.session_state.prep_source = None
+    st.session_state.prep_history = []
     st.session_state.ames_ready = is_ames_shaped(
         pd.DataFrame(preview["rows"], columns=preview["columns"])
     )
@@ -353,6 +357,7 @@ def _try_load(persist):
     st.session_state.models = {}
     st.session_state.prep_df = None
     st.session_state.prep_source = None
+    st.session_state.prep_history = []
     st.session_state.ames_ready = is_ames_shaped(
         pd.DataFrame(preview["rows"], columns=preview["columns"])
     )
@@ -648,6 +653,7 @@ def _prep_frame() -> pd.DataFrame | None:
     if st.session_state.prep_df is None or st.session_state.prep_source != st.session_state.dataset_id:
         st.session_state.prep_df = df.copy()
         st.session_state.prep_source = st.session_state.dataset_id
+        st.session_state.prep_history = []
         st.session_state.pop("prep_shown", None)
     return st.session_state.prep_df
 
@@ -659,16 +665,38 @@ PREP_WIDGET_KEYS = (
 )
 
 
-def _apply_op(op, frame: pd.DataFrame, *args) -> None:
+def _resync_column_widgets(columns: list[str]) -> None:
+    for key in PREP_WIDGET_KEYS:
+        st.session_state.pop(key, None)
+    st.session_state.prep_shown = columns
+    st.session_state.prep_order = columns
+
+
+PREP_HISTORY_LIMIT = 20
+
+
+def _apply_op(op, frame: pd.DataFrame, *args, label: str) -> None:
     try:
         result = op(frame, *args)
     except ValueError as e:
         st.error(str(e))
         return
+    st.session_state.prep_history = (
+        st.session_state.prep_history + [(label, frame)]
+    )[-PREP_HISTORY_LIMIT:]
     st.session_state.prep_df = result
     if list(result.columns) != list(frame.columns):
-        for key in PREP_WIDGET_KEYS:
-            st.session_state.pop(key, None)
+        _resync_column_widgets(list(result.columns))
+    st.rerun()
+
+
+def _undo_op() -> None:
+    label, frame = st.session_state.prep_history[-1]
+    st.session_state.prep_history = st.session_state.prep_history[:-1]
+    current = st.session_state.prep_df
+    st.session_state.prep_df = frame
+    if current is None or list(current.columns) != list(frame.columns):
+        _resync_column_widgets(list(frame.columns))
     st.rerun()
 
 
@@ -732,21 +760,33 @@ def render_prepare():
 
     with st.container(border=True):
         st.subheader("Columns")
-        st.caption("Unticking a column hides it here. Dropping removes it from the data you save.")
-        shown = st.multiselect("Columns in view", all_columns, default=all_columns, key="prep_shown")
+        st.caption("Click a chip to hide that column. Dropping removes it from the data you save.")
+        shown = st.pills(
+            "Columns in view",
+            all_columns,
+            selection_mode="multi",
+            default=all_columns,
+            key="prep_shown",
+        )
         hidden = [c for c in all_columns if c not in shown]
 
-        drop_col, reset_col = st.columns(2)
+        drop_col, undo_col, reset_col = st.columns(3)
         with drop_col:
             if st.button(
                 f"Drop {len(hidden)} hidden column{'s' if len(hidden) != 1 else ''}",
                 disabled=not hidden,
                 use_container_width=True,
             ):
-                _apply_op(lambda frame, cols: frame.drop(columns=cols), prep, hidden)
+                _apply_op(lambda frame, cols: frame.drop(columns=cols), prep, hidden, label=f"dropped {len(hidden)} column{'s' if len(hidden) != 1 else ''}")
+        with undo_col:
+            history = st.session_state.prep_history
+            undo_label = f"Undo \u2014 {history[-1][0]}" if history else "Nothing to undo"
+            if st.button(undo_label, disabled=not history, use_container_width=True):
+                _undo_op()
         with reset_col:
             if st.button("Reset to uploaded data", use_container_width=True):
                 st.session_state.prep_df = None
+                st.session_state.prep_history = []
                 for key in PREP_WIDGET_KEYS:
                     st.session_state.pop(key, None)
                 st.rerun()
@@ -776,7 +816,7 @@ def render_prepare():
                 )
             st.caption(f"{prep[impute_column].isna().sum():,} missing values in {impute_column}")
             if st.button("Apply fill", key="prep_impute_go"):
-                _apply_op(prep_ops.impute, prep, impute_column, impute_strategy, impute_constant)
+                _apply_op(prep_ops.impute, prep, impute_column, impute_strategy, impute_constant, label=f"filled {impute_column}")
 
         with cast_tab:
             col, dtype = st.columns(2)
@@ -786,7 +826,7 @@ def render_prepare():
                 cast_dtype = st.selectbox("Cast to", list(prep_ops.CASTS), key="prep_cast_dtype")
             st.caption(f"{cast_column} is currently {prep[cast_column].dtype}")
             if st.button("Apply cast", key="prep_cast_go"):
-                _apply_op(prep_ops.cast, prep, cast_column, cast_dtype)
+                _apply_op(prep_ops.cast, prep, cast_column, cast_dtype, label=f"cast {cast_column} to {cast_dtype}")
 
         with rows_tab:
             expression = st.text_input(
@@ -796,13 +836,13 @@ def render_prepare():
                 help="A pandas query expression. Wrap odd column names in backticks.",
             )
             if st.button("Apply filter", key="prep_filter_go", disabled=not expression.strip()):
-                _apply_op(prep_ops.filter_rows, prep, expression)
+                _apply_op(prep_ops.filter_rows, prep, expression, label="filtered rows")
 
             threshold = st.slider("Drop rows missing more than (% of columns)", 0, 100, 50, key="prep_sparse_pct")
             sparse_col, dedupe_col = st.columns(2)
             with sparse_col:
                 if st.button("Drop sparse rows", key="prep_sparse_go", use_container_width=True):
-                    _apply_op(prep_ops.drop_sparse_rows, prep, float(threshold))
+                    _apply_op(prep_ops.drop_sparse_rows, prep, float(threshold), label="dropped sparse rows")
             with dedupe_col:
                 duplicates = int(prep.duplicated().sum())
                 if st.button(
@@ -811,7 +851,7 @@ def render_prepare():
                     disabled=not duplicates,
                     use_container_width=True,
                 ):
-                    _apply_op(prep_ops.deduplicate, prep)
+                    _apply_op(prep_ops.deduplicate, prep, label="dropped duplicate rows")
 
         with columns_tab:
             edited = st.data_editor(
@@ -822,7 +862,7 @@ def render_prepare():
                 key="prep_rename_editor",
             )
             if st.button("Apply renames", key="prep_rename_go"):
-                _apply_op(prep_ops.rename_columns, prep, dict(zip(edited["column"], edited["rename to"])))
+                _apply_op(prep_ops.rename_columns, prep, dict(zip(edited["column"], edited["rename to"])), label="renamed columns")
 
             order = st.multiselect(
                 "Column order",
@@ -831,8 +871,9 @@ def render_prepare():
                 key="prep_order",
                 help="Clear it and re-pick the columns in the order you want.",
             )
+            order = list(order)
             if st.button("Apply order", key="prep_order_go", disabled=order == all_columns):
-                _apply_op(prep_ops.reorder_columns, prep, order)
+                _apply_op(prep_ops.reorder_columns, prep, order, label="reordered columns")
 
     with st.container(border=True):
         st.subheader("Inspect")
