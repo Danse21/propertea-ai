@@ -102,9 +102,12 @@ html, body, [class*="css"] {
 [data-testid="stAppViewContainer"] {
     background: var(--bg);
 }
+[data-testid="stHeader"] {
+    background: var(--bg) !important;
+}
 
 [data-testid="stMainBlockContainer"] {
-    padding-top: 2.5rem !important;
+    padding-top: 4.5rem !important;
     padding-bottom: 3rem !important;
     padding-left: 2rem !important;
     padding-right: 2rem !important;
@@ -587,7 +590,7 @@ div[data-testid="stMetricValue"] {
 }
 @media (max-width: 820px) {
     [data-testid="stMainBlockContainer"] {
-        padding-top: 1.5rem !important;
+        padding-top: 3.25rem !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
