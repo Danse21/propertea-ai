@@ -1,17 +1,16 @@
-"""Model training endpoints — separate from routers/datasets.py's dataset CRUD."""
-
 import io
 from typing import Annotated
 
 import joblib
 import numpy as np
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth import CurrentUserDep
 from app.db import get_db
-from app.models import Dataset, Model
-from app.routers.datasets import rows_to_dataframe
+from app.models import Model, User
+from app.routers.datasets import get_owned_dataset, rows_to_dataframe
 from app.schemas import ModelOut, PredictRequest, PredictResponse, TrainRequest, TrainResponse
 from app.services import modeling
 from app.services.preprocessing import DataValidationError
@@ -19,21 +18,13 @@ from app.services.preprocessing import DataValidationError
 router = APIRouter(tags=["models"])
 
 DbDep = Annotated[Session, Depends(get_db)]
-SessionIdDep = Annotated[str | None, Header(alias="X-Session-Id")]
 
 
-def _get_owned_dataset(db: Session, dataset_id: int, owner_id: str | None) -> Dataset:
-    ds = db.get(Dataset, dataset_id)
-    if ds is None or ds.owner_id != owner_id:
-        raise HTTPException(404, "Dataset not found")
-    return ds
-
-
-def _get_owned_model(db: Session, model_id: int, owner_id: str | None) -> Model:
+def _get_owned_model(db: Session, model_id: int, user: User) -> Model:
     model = db.get(Model, model_id)
     if model is None:
         raise HTTPException(404, "Model not found")
-    _get_owned_dataset(db, model.dataset_id, owner_id)
+    get_owned_dataset(db, model.dataset_id, user)
     return model
 
 
@@ -47,9 +38,9 @@ def train(
     db: DbDep,
     dataset_id: int,
     body: TrainRequest,
-    x_session_id: SessionIdDep = None,
+    user: CurrentUserDep,
 ) -> TrainResponse:
-    _get_owned_dataset(db, dataset_id, x_session_id)
+    get_owned_dataset(db, dataset_id, user)
 
     if body.algo not in modeling.MODELS:
         raise HTTPException(400, f"Unknown algorithm {body.algo!r}. Choose from {list(modeling.MODELS)}.")
@@ -67,6 +58,8 @@ def train(
         dataset_id=dataset_id,
         algo=body.algo,
         metrics=result["metrics"],
+        importances=result["importances"].to_dict(),
+        best_params=result["best_params"],
         artifact=artifact_buf.getvalue(),
     )
     db.add(model)
@@ -76,15 +69,15 @@ def train(
     return TrainResponse(
         model_id=model.id,
         algo=model.algo,
-        metrics=result["metrics"],
-        best_params=result["best_params"],
-        importances=result["importances"].to_dict(),
+        metrics=model.metrics,
+        best_params=model.best_params,
+        importances=model.importances,
     )
 
 
 @router.get("/datasets/{dataset_id}/models", response_model=list[ModelOut])
-def list_models(db: DbDep, dataset_id: int, x_session_id: SessionIdDep = None) -> list[Model]:
-    _get_owned_dataset(db, dataset_id, x_session_id)
+def list_models(db: DbDep, dataset_id: int, user: CurrentUserDep) -> list[Model]:
+    get_owned_dataset(db, dataset_id, user)
     stmt = select(Model).where(Model.dataset_id == dataset_id).order_by(Model.created_at.desc())
     return list(db.scalars(stmt))
 
@@ -94,9 +87,9 @@ def predict(
     db: DbDep,
     model_id: int,
     body: PredictRequest,
-    x_session_id: SessionIdDep = None,
+    user: CurrentUserDep,
 ) -> PredictResponse:
-    model = _get_owned_model(db, model_id, x_session_id)
+    model = _get_owned_model(db, model_id, user)
     bundle = joblib.load(io.BytesIO(model.artifact))
 
     row = modeling.build_predict_row(bundle["defaults"], body.overrides)

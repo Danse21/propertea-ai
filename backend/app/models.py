@@ -65,8 +65,21 @@ class Model(Base):
     )
     algo: Mapped[str] = mapped_column(String(64))
     metrics: Mapped[dict] = mapped_column(JSON)
+    importances: Mapped[dict] = mapped_column(JSON, default=dict)
+    best_params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     artifact: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow)
 
     dataset: Mapped[Dataset] = relationship(back_populates="models")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(128))
+    token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow)

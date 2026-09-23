@@ -56,3 +56,19 @@ def csv_bytes() -> bytes:
         "3,11250,NA,223500\n"
         "4,9550,,140000\n"
     ).encode()
+
+
+def _register(client, username: str, password: str = "hunter2hunter2") -> dict:
+    r = client.post("/auth/register", json={"username": username, "password": password})
+    assert r.status_code == 201, r.text
+    return {"X-Session-Id": r.json()["token"]}
+
+
+@pytest.fixture
+def auth(client) -> dict:
+    return _register(client, "alice")
+
+
+@pytest.fixture
+def other_auth(client) -> dict:
+    return _register(client, "bob")

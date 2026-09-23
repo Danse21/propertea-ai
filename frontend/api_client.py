@@ -1,5 +1,3 @@
-"""HTTP client for the FastAPI backend."""
-
 import io
 import os
 
@@ -14,11 +12,15 @@ PAGE_SIZE = 500
 
 
 class ApiError(Exception):
-    """The backend responded, but with an error status."""
+    pass
 
 
 class BackendUnreachableError(ApiError):
-    """The backend could not be reached at all (connection refused, timeout, DNS)."""
+    pass
+
+
+class AuthError(ApiError):
+    pass
 
 
 def _headers(session_id: str) -> dict:
@@ -36,13 +38,28 @@ def _request(method: str, path: str, *, timeout: float = TIMEOUT_SECONDS, **kwar
             detail = response.json().get("detail", response.text)
         except ValueError:
             detail = response.text
+        if response.status_code == 401:
+            raise AuthError(str(detail))
         raise ApiError(f"{response.status_code}: {detail}")
 
+    if response.status_code == 204 or not response.content:
+        return {}
     return response.json()
 
 
+def register(username: str, password: str) -> dict:
+    return _request("POST", "/auth/register", json={"username": username, "password": password})
+
+
+def login(username: str, password: str) -> dict:
+    return _request("POST", "/auth/login", json={"username": username, "password": password})
+
+
+def logout(session_id: str) -> None:
+    _request("POST", "/auth/logout", headers=_headers(session_id))
+
+
 def upload_dataset(session_id: str, file, name: str, target_column: str) -> dict:
-    """`file` may be raw bytes or a file-like object (e.g. Streamlit's UploadedFile)."""
     if isinstance(file, (bytes, bytearray)):
         file = io.BytesIO(file)
     filename = getattr(file, "name", "dataset.csv")
@@ -79,7 +96,6 @@ def get_dataset(session_id: str, dataset_id: int, offset: int = 0, limit: int = 
 
 
 def get_full_dataset(session_id: str, dataset_id: int) -> pd.DataFrame:
-    """Page through GET /datasets/{id} until every row is fetched, and reassemble a DataFrame."""
     first = get_dataset(session_id, dataset_id, offset=0, limit=PAGE_SIZE)
     columns = first["columns"]
     rows = list(first["rows"])

@@ -6,7 +6,6 @@ from app.services.preprocessing import FEATURES_COLUMNS, TARGET_COLUMN
 
 
 def _training_csv(n_rows: int = 40) -> bytes:
-    """Enough rows, with real numeric variation, for GridSearchCV's cv folds to be non-degenerate."""
     rng = np.random.default_rng(0)
     rows = []
     for i in range(n_rows):
@@ -36,27 +35,25 @@ def _training_csv(n_rows: int = 40) -> bytes:
     return pd.DataFrame(rows).to_csv(index=False).encode()
 
 
-def _upload_training_dataset(client, session="s1"):
+def _upload_training_dataset(client, auth):
     return client.post(
         "/datasets/upload",
         files={"file": ("train.csv", _training_csv(), "text/csv")},
         data={"name": "training-set", "target_column": TARGET_COLUMN},
-        headers={"X-Session-Id": session},
+        headers=auth,
     )
 
 
-def test_train_happy_path(client, db_session):
-    ds_id = _upload_training_dataset(client).json()["id"]
+def test_train_happy_path(client, auth, db_session):
+    ds_id = _upload_training_dataset(client, auth).json()["id"]
 
     r = client.post(
         f"/datasets/{ds_id}/train",
         json={"algo": "Linear Regression"},
-        headers={"X-Session-Id": "s1"},
+        headers=auth,
     )
     assert r.status_code == 201, r.text
     body = r.json()
-    # Same regression guard as test_modeling.py: catches an accidental extra
-    # sqrt() inflating a small RMSE.
     assert 0 < body["metrics"]["rmse_log"] < 1.0
     assert -1.0 < body["metrics"]["r2"] <= 1.0
     assert body["best_params"] is None
@@ -67,96 +64,112 @@ def test_train_happy_path(client, db_session):
     assert model.artifact is not None and len(model.artifact) > 0
 
 
-def test_train_unknown_dataset_is_404(client):
+def test_train_unknown_dataset_is_404(client, auth):
     r = client.post(
         "/datasets/999/train",
         json={"algo": "Linear Regression"},
-        headers={"X-Session-Id": "s1"},
+        headers=auth,
     )
     assert r.status_code == 404
 
 
-def test_train_wrong_session_is_404(client):
-    ds_id = _upload_training_dataset(client, session="s1").json()["id"]
+def test_train_wrong_user_is_404(client, auth, other_auth):
+    ds_id = _upload_training_dataset(client, auth).json()["id"]
     r = client.post(
         f"/datasets/{ds_id}/train",
         json={"algo": "Linear Regression"},
-        headers={"X-Session-Id": "s2"},
+        headers=other_auth,
     )
     assert r.status_code == 404
 
 
-def test_train_unknown_algo_is_400(client):
-    ds_id = _upload_training_dataset(client).json()["id"]
+def test_train_unknown_algo_is_400(client, auth):
+    ds_id = _upload_training_dataset(client, auth).json()["id"]
     r = client.post(
         f"/datasets/{ds_id}/train",
         json={"algo": "Nonexistent Model"},
-        headers={"X-Session-Id": "s1"},
+        headers=auth,
     )
     assert r.status_code == 400
 
 
-def _train(client, ds_id, session="s1", algo="Linear Regression"):
+def _train(client, auth, ds_id, algo="Linear Regression"):
     return client.post(
         f"/datasets/{ds_id}/train",
         json={"algo": algo},
-        headers={"X-Session-Id": session},
+        headers=auth,
     )
 
 
-def test_list_models_for_dataset(client):
-    ds_id = _upload_training_dataset(client).json()["id"]
-    _train(client, ds_id, algo="Linear Regression")
-    _train(client, ds_id, algo="Ridge")
+def test_list_models_for_dataset(client, auth):
+    ds_id = _upload_training_dataset(client, auth).json()["id"]
+    _train(client, auth, ds_id, algo="Linear Regression")
+    _train(client, auth, ds_id, algo="Ridge")
 
-    r = client.get(f"/datasets/{ds_id}/models", headers={"X-Session-Id": "s1"})
+    r = client.get(f"/datasets/{ds_id}/models", headers=auth)
     assert r.status_code == 200
     body = r.json()
     assert len(body) == 2
     assert {m["algo"] for m in body} == {"Linear Regression", "Ridge"}
     assert "artifact" not in body[0]
 
+    by_algo = {m["algo"]: m for m in body}
+    assert len(by_algo["Linear Regression"]["importances"]) > 0
+    assert by_algo["Linear Regression"]["best_params"] is None
+    assert by_algo["Ridge"]["best_params"]["model__alpha"] in (0.1, 1.0, 10.0, 50.0)
 
-def test_list_models_wrong_session_is_404(client):
-    ds_id = _upload_training_dataset(client, session="s1").json()["id"]
-    r = client.get(f"/datasets/{ds_id}/models", headers={"X-Session-Id": "s2"})
+
+def test_listed_model_matches_what_training_returned(client, auth):
+    ds_id = _upload_training_dataset(client, auth).json()["id"]
+    trained = _train(client, auth, ds_id, algo="Ridge").json()
+
+    listed = client.get(f"/datasets/{ds_id}/models", headers=auth).json()[0]
+    assert listed["id"] == trained["model_id"]
+    assert listed["metrics"] == trained["metrics"]
+    assert listed["importances"] == trained["importances"]
+    assert listed["best_params"] == trained["best_params"]
+
+
+def test_list_models_wrong_user_is_404(client, auth, other_auth):
+    ds_id = _upload_training_dataset(client, auth).json()["id"]
+    r = client.get(f"/datasets/{ds_id}/models", headers=other_auth)
     assert r.status_code == 404
 
 
-def test_predict_happy_path_and_shifts_with_overall_qual(client):
-    ds_id = _upload_training_dataset(client).json()["id"]
-    model_id = _train(client, ds_id).json()["model_id"]
+def test_predict_happy_path_and_shifts_with_overall_qual(client, auth):
+    ds_id = _upload_training_dataset(client, auth).json()["id"]
+    model_id = _train(client, auth, ds_id).json()["model_id"]
 
     low = client.post(
         f"/models/{model_id}/predict",
         json={"overrides": {"OverallQual": 2}},
-        headers={"X-Session-Id": "s1"},
+        headers=auth,
     )
     high = client.post(
         f"/models/{model_id}/predict",
         json={"overrides": {"OverallQual": 9}},
-        headers={"X-Session-Id": "s1"},
+        headers=auth,
     )
     assert low.status_code == 200, low.text
     assert high.status_code == 200, high.text
     assert high.json()["prediction"] > low.json()["prediction"]
 
 
-def test_predict_unknown_model_is_404(client):
+def test_predict_unknown_model_is_404(client, auth):
     r = client.post(
         "/models/999/predict",
         json={"overrides": {}},
-        headers={"X-Session-Id": "s1"},
+        headers=auth,
     )
     assert r.status_code == 404
 
 
-def test_predict_wrong_session_is_404(client):
-    ds_id = _upload_training_dataset(client, session="s1").json()["id"]
-    model_id = _train(client, ds_id, session="s1").json()["model_id"]
+def test_predict_wrong_user_is_404(client, auth, other_auth):
+    ds_id = _upload_training_dataset(client, auth).json()["id"]
+    model_id = _train(client, auth, ds_id).json()["model_id"]
     r = client.post(
         f"/models/{model_id}/predict",
         json={"overrides": {}},
-        headers={"X-Session-Id": "s2"},
+        headers=other_auth,
     )
     assert r.status_code == 404

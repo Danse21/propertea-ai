@@ -48,7 +48,6 @@ def make_valid_df(n_rows: int = 5) -> pd.DataFrame:
 
 
 def make_training_df(n_rows: int = 40) -> pd.DataFrame:
-    """Enough rows, with real numeric variation, for GridSearchCV's cv folds to be non-degenerate."""
     rng = np.random.default_rng(0)
     rows = []
     for i in range(n_rows):

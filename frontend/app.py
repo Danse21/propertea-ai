@@ -1,4 +1,4 @@
-import uuid
+from datetime import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,14 +18,16 @@ from eda_service import (
     validate_data,
 )
 from styles import CSS
-from theme import COLORS
-from ui import badge, crumb, sidebar_brand, spacer
+from theme import COLORS, HEATMAP_CMAP
+from ui import badge, crumb, note, sidebar_brand, spacer
 
 st.set_page_config(page_title="propertea-ai", page_icon="\U0001F3E0", layout="wide")
 st.html(CSS)
 
-if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
+if "token" not in st.session_state:
+    st.session_state.token = None
+if "username" not in st.session_state:
+    st.session_state.username = None
 if "dataset_id" not in st.session_state:
     st.session_state.dataset_id = None
 if "dataset_summary" not in st.session_state:
@@ -37,7 +39,7 @@ if "dataset_name" not in st.session_state:
 if "models" not in st.session_state:
     st.session_state.models = {}
 if "page" not in st.session_state:
-    st.session_state.page = "Upload"
+    st.session_state.page = "Datasets"
 
 _cached_get_full_dataset = st.cache_data(api_client.get_full_dataset)
 _cached_list_algorithms = st.cache_data(api_client.list_algorithms)
@@ -58,10 +60,178 @@ def sidebar():
             st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown(
-            f"<div class='session-badge'><span class='lbl'>SESSION</span>"
-            f"{st.session_state.session_id[:8]}&hellip;</div>",
+            f"<div class='session-badge'><span class='lbl'>SIGNED IN</span>"
+            f"{st.session_state.username}</div>",
             unsafe_allow_html=True,
         )
+        if st.button("Log out", key="nav-logout", use_container_width=True):
+            _sign_out()
+
+
+def _sign_out():
+    if st.session_state.token:
+        try:
+            api_client.logout(st.session_state.token)
+        except api_client.ApiError:
+            pass
+    st.session_state.token = None
+    st.session_state.username = None
+    st.session_state.dataset_id = None
+    st.session_state.dataset_summary = None
+    st.session_state._uploaded_file_id = None
+    st.session_state.models = {}
+    st.session_state.page = "Datasets"
+    _cached_get_full_dataset.clear()
+    st.rerun()
+
+
+def _sign_in(call):
+    try:
+        result = call()
+    except api_client.BackendUnreachableError as e:
+        st.error(f"Can't reach the backend: {e}")
+    except api_client.AuthError as e:
+        st.error(str(e))
+    except api_client.ApiError as e:
+        st.error(f"Couldn't sign you in: {e}")
+    else:
+        st.session_state.token = result["token"]
+        st.session_state.username = result["username"]
+        st.rerun()
+
+
+def render_auth():
+    _left_pad, main_col, _right_pad = st.columns([1, 2, 1])
+    with main_col:
+        st.html("<div class='auth-brand'>\U0001F3E0 propertea-ai</div>")
+        st.html("<p class='subtitle'>Sign in to reach your datasets and trained models</p>")
+
+        login_tab, register_tab = st.tabs(["Log in", "Create account"])
+
+        with login_tab:
+            with st.form("login"):
+                username = st.text_input("Username")
+                password = st.text_input("Password", type="password")
+                if st.form_submit_button("Log in", type="primary", use_container_width=True):
+                    if not username or not password:
+                        st.error("Enter a username and a password.")
+                    else:
+                        _sign_in(lambda: api_client.login(username, password))
+
+        with register_tab:
+            with st.form("register"):
+                new_username = st.text_input("Username", help="At least 3 characters")
+                new_password = st.text_input("Password", type="password", help="At least 8 characters")
+                if st.form_submit_button("Create account", type="primary", use_container_width=True):
+                    if len(new_username) < 3:
+                        st.error("Username must be at least 3 characters.")
+                    elif len(new_password) < 8:
+                        st.error("Password must be at least 8 characters.")
+                    else:
+                        _sign_in(lambda: api_client.register(new_username, new_password))
+
+
+def _pretty_date(iso: str) -> str:
+    return datetime.fromisoformat(iso).strftime("%d %b %Y")
+
+
+def _select_dataset(ds: dict, models: list[dict]) -> None:
+    try:
+        preview = api_client.get_dataset(st.session_state.token, ds["id"], limit=1)
+    except api_client.ApiError as e:
+        st.error(f"Couldn't open that dataset: {e}")
+        return
+
+    st.session_state.dataset_id = ds["id"]
+    st.session_state.dataset_name = ds["name"]
+    st.session_state.dataset_summary = {
+        "n_rows": ds["n_rows"],
+        "n_columns": len(preview["columns"]),
+    }
+    st.session_state.models = {
+        m["algo"]: {
+            "model_id": m["id"],
+            "metrics": m["metrics"],
+            "best_params": m["best_params"],
+            "importances": m["importances"],
+        }
+        for m in reversed(models)
+    }
+    st.session_state.page = "Explore"
+    st.rerun()
+
+
+def render_datasets():
+    crumb("Datasets")
+    st.title("Your datasets")
+    st.html("<p class='subtitle'>Pick up where you left off, or start a new upload</p>")
+
+    _left_pad, main_col, _right_pad = st.columns([1, 8, 1])
+    with main_col:
+        try:
+            datasets = api_client.list_datasets(st.session_state.token)
+        except api_client.BackendUnreachableError as e:
+            st.error(f"Can't reach the backend: {e}")
+            return
+        except api_client.ApiError as e:
+            st.error(f"Couldn't load your datasets: {e}")
+            return
+
+        if not datasets:
+            note("Nothing here yet. Upload a CSV to get started.")
+            if st.button("Go to Upload \u2192", type="primary", use_container_width=True):
+                st.session_state.page = "Upload"
+                st.rerun()
+            return
+
+        for ds in datasets:
+            try:
+                models = api_client.list_models(st.session_state.token, ds["id"])
+            except api_client.ApiError:
+                models = []
+
+            with st.container(border=True):
+                is_active = ds["id"] == st.session_state.dataset_id
+                header, action = st.columns([3, 1])
+
+                with header:
+                    st.subheader(ds["name"])
+                    source = "fetched from URL" if ds["source_url"] else "uploaded"
+                    st.caption(
+                        f"{ds['n_rows']:,} rows \u00b7 target {ds['target_column']} \u00b7 "
+                        f"{source} \u00b7 {_pretty_date(ds['created_at'])}"
+                    )
+
+                with action:
+                    spacer(24)
+                    label = "Reopen" if is_active else "Continue with this"
+                    if st.button(label, key=f"pick-{ds['id']}", type="primary", use_container_width=True):
+                        _select_dataset(ds, models)
+
+                if is_active:
+                    badge("Currently open")
+
+                if models:
+                    st.caption(f"{len(models)} trained model{'s' if len(models) > 1 else ''}")
+                    st.dataframe(
+                        [
+                            {
+                                "Algorithm": m["algo"],
+                                "RMSE (log)": m["metrics"]["rmse_log"],
+                                "R²": m["metrics"].get("r2", "—"),
+                                "Trained": _pretty_date(m["created_at"]),
+                            }
+                            for m in models
+                        ],
+                        hide_index=True,
+                    )
+                else:
+                    st.caption("No models trained on this dataset yet.")
+
+        spacer(24)
+        if st.button("Upload another dataset", use_container_width=True):
+            st.session_state.page = "Upload"
+            st.rerun()
 
 
 def render_upload():
@@ -78,7 +248,7 @@ def render_upload():
             if uploaded is not None and uploaded.file_id != st.session_state._uploaded_file_id:
                 st.session_state._uploaded_file_id = uploaded.file_id
                 _try_load(lambda: api_client.upload_dataset(
-                    st.session_state.session_id, uploaded, st.session_state.dataset_name, TARGET_COLUMN
+                    st.session_state.token, uploaded, st.session_state.dataset_name, TARGET_COLUMN
                 ))
 
             st.html("<strong><div class='divider'>OR PASTE A URL</div></strong>")
@@ -94,7 +264,7 @@ def render_upload():
                 fetch_clicked = st.button("Fetch dataset", use_container_width=True)
             if fetch_clicked and url:
                 _try_load(lambda: api_client.fetch_dataset_from_url(
-                    st.session_state.session_id, url, st.session_state.dataset_name, TARGET_COLUMN
+                    st.session_state.token, url, st.session_state.dataset_name, TARGET_COLUMN
                 ))
 
             name_col, target_col = st.columns(2)
@@ -116,7 +286,6 @@ def render_upload():
 
 
 def _try_load(persist):
-    """`persist` calls the backend (upload or from-url) and returns its DatasetOut dict."""
     try:
         response = persist()
     except api_client.BackendUnreachableError as e:
@@ -128,7 +297,7 @@ def _try_load(persist):
 
     dataset_id = response["id"]
     try:
-        preview = api_client.get_dataset(st.session_state.session_id, dataset_id, limit=1)
+        preview = api_client.get_dataset(st.session_state.token, dataset_id, limit=1)
         validate_data(pd.DataFrame(preview["rows"], columns=preview["columns"]), require_target=True)
     except DataValidationError as e:
         st.error(f"This doesn't look like valid Ames housing data: {e}")
@@ -147,7 +316,7 @@ def _require_dataset() -> pd.DataFrame | None:
         st.warning("Upload a dataset first — see the Upload page.")
         return None
     try:
-        return _cached_get_full_dataset(st.session_state.session_id, st.session_state.dataset_id)
+        return _cached_get_full_dataset(st.session_state.token, st.session_state.dataset_id)
     except api_client.ApiError as e:
         st.error(f"Couldn't load the dataset from the backend: {e}")
         return None
@@ -166,11 +335,11 @@ def render_eda():
         st.subheader("Target distribution")
         log_price = np.log1p(df["SalePrice"])
         fig, axes = plt.subplots(1, 2, figsize=(10, 3.2))
-        axes[0].hist(df["SalePrice"] / 1000, bins=40, color=COLORS["teal-600"])
+        axes[0].hist(df["SalePrice"] / 1000, bins=40, color=COLORS["accent"])
         axes[0].set_title(f"SalePrice (skew {df['SalePrice'].skew():.2f})", fontsize=10)
         axes[0].set_xlabel("SalePrice ($1000x)")
         axes[0].set_ylabel("Count")
-        axes[1].hist(log_price, bins=40, color=COLORS["teal-600"])
+        axes[1].hist(log_price, bins=40, color=COLORS["accent"])
         axes[1].set_title(f"log1p(SalePrice) (skew {log_price.skew():.2f})", fontsize=10)
         axes[1].set_xlabel("log1p(SalePrice)")
         axes[1].set_ylabel("Count")
@@ -187,7 +356,7 @@ def render_eda():
         miss_subset = miss.loc[cols_to_show].sort_values()
         if len(miss_subset):
             bar_colors = [
-                COLORS["teal-600"] if col in NA_IS_CATEGORY else COLORS["red-600"]
+                COLORS["accent"] if col in NA_IS_CATEGORY else COLORS["danger"]
                 for col in miss_subset.index
             ]
             fig2, ax2 = plt.subplots(figsize=(9, 3.2))
@@ -195,8 +364,8 @@ def render_eda():
             ax2.set_xlabel("% missing")
             ax2.spines[["top", "right"]].set_visible(False)
             legend_handles = [
-                Patch(facecolor=COLORS["red-600"], label="Genuinely missing"),
-                Patch(facecolor=COLORS["teal-600"], label="NA means \"none\""),
+                Patch(facecolor=COLORS["danger"], label="Genuinely missing"),
+                Patch(facecolor=COLORS["accent"], label="NA means \"none\""),
             ]
             ax2.legend(handles=legend_handles, loc="lower right", fontsize=8, frameon=False)
             st.pyplot(fig2)
@@ -208,7 +377,7 @@ def render_eda():
         st.subheader("Correlation heatmap — top SalePrice movers")
         corr = _cached_top_mover_correlations(df)
         fig3, ax3 = plt.subplots(figsize=(5, 4))
-        im = ax3.imshow(corr, cmap="BuGn", vmin=0, vmax=1)
+        im = ax3.imshow(corr, cmap=HEATMAP_CMAP, vmin=0, vmax=1)
         ax3.set_xticks(range(len(corr.columns)))
         ax3.set_xticklabels(
             [abbr for abbr, raw, _ in CORR_LEGEND if raw in corr.columns], rotation=45, ha="right", fontsize=8
@@ -219,7 +388,7 @@ def render_eda():
             for j in range(len(corr.columns)):
                 ax3.text(
                     j, i, f"{corr.iloc[i, j]:.2f}", ha="center", va="center", fontsize=7,
-                    color=COLORS["white"] if corr.iloc[i, j] > 0.6 else COLORS["gray-900"],
+                    color=COLORS["white"] if corr.iloc[i, j] > 0.6 else COLORS["ink"],
                 )
         fig3.colorbar(im, ax=ax3, fraction=0.046, pad=0.04)
         st.pyplot(fig3, width="content")
@@ -263,7 +432,7 @@ def render_train():
     if train_clicked:
         with st.spinner("Training..."):
             try:
-                result = api_client.train(st.session_state.session_id, st.session_state.dataset_id, algo)
+                result = api_client.train(st.session_state.token, st.session_state.dataset_id, algo)
             except api_client.BackendUnreachableError as e:
                 st.error(f"Can't reach the backend: {e}")
             except api_client.ApiError as e:
@@ -283,7 +452,7 @@ def render_train():
             with st.container(border=True):
                 st.html(
                     f"<div class='rmse-box-label'>RMSE: {metrics['rmse_log']} &nbsp;·&nbsp; "
-                    f"R²: {metrics['r2']}</div>"
+                    f"R²: {metrics.get('r2', '—')}</div>"
                 )
             spacer(36)
             badge("Model successfully trained and saved!", large=True)
@@ -295,7 +464,7 @@ def render_train():
             st.subheader("Model comparison")
             comparison = pd.DataFrame(
                 [
-                    {"Model": name, "RMSE (log price)": m["metrics"]["rmse_log"], "R²": m["metrics"]["r2"]}
+                    {"Model": name, "RMSE (log price)": m["metrics"]["rmse_log"], "R²": m["metrics"].get("r2", "—")}
                     for name, m in st.session_state.models.items()
                 ]
             )
@@ -351,7 +520,7 @@ def render_predict():
             try:
                 model_id = st.session_state.models[model_name]["model_id"]
                 result = api_client.predict(
-                    st.session_state.session_id,
+                    st.session_state.token,
                     model_id,
                     {
                         "Neighborhood": neighborhood,
@@ -374,23 +543,26 @@ def render_predict():
                 with st.container(border=True):
                     st.subheader("Feature importance")
                     importances = st.session_state.models[model_name]["importances"]
-                    labels = list(importances.keys())[::-1]
-                    values = list(importances.values())[::-1]
-                    fig_imp, ax_imp = plt.subplots(figsize=(7, 4))
-                    ax_imp.barh(labels, values, color=COLORS["teal-600"])
-                    ax_imp.set_xlabel("Importance (increase in RMSE when shuffled)")
-                    ax_imp.spines[["top", "right"]].set_visible(False)
-                    st.pyplot(fig_imp)
-                    plt.close(fig_imp)
+                    if not importances:
+                        st.caption("This model was trained before importances were recorded. Retrain it to see them.")
+                    else:
+                        labels = list(importances.keys())[::-1]
+                        values = list(importances.values())[::-1]
+                        fig_imp, ax_imp = plt.subplots(figsize=(7, 4))
+                        ax_imp.barh(labels, values, color=COLORS["accent"])
+                        ax_imp.set_xlabel("Importance (increase in RMSE when shuffled)")
+                        ax_imp.spines[["top", "right"]].set_visible(False)
+                        st.pyplot(fig_imp)
+                        plt.close(fig_imp)
 
                 with st.container(border=True):
                     st.subheader("Where this prediction falls")
                     df_total_sf = df["TotalBsmtSF"] + df["1stFlrSF"] + df["2ndFlrSF"]
                     fig, ax = plt.subplots(figsize=(7, 5))
-                    ax.scatter(df_total_sf, df["SalePrice"], alpha=0.35, color=COLORS["teal-600"], label="Historical sales")
-                    ax.scatter([total_sf], [price], s=140, color=COLORS["orange-500"], edgecolor=COLORS["white"], linewidth=1.5, zorder=5, label="Your estimate")
-                    ax.axhline(price, color=COLORS["orange-500"], linestyle="--", linewidth=1, alpha=0.6)
-                    ax.axvline(total_sf, color=COLORS["orange-500"], linestyle="--", linewidth=1, alpha=0.6)
+                    ax.scatter(df_total_sf, df["SalePrice"], alpha=0.35, color=COLORS["accent"], label="Historical sales")
+                    ax.scatter([total_sf], [price], s=140, color=COLORS["highlight"], edgecolor=COLORS["white"], linewidth=1.5, zorder=5, label="Your estimate")
+                    ax.axhline(price, color=COLORS["highlight"], linestyle="--", linewidth=1, alpha=0.6)
+                    ax.axvline(total_sf, color=COLORS["highlight"], linestyle="--", linewidth=1, alpha=0.6)
                     ax.set_xlabel("Total Square Footage (sq ft)")
                     ax.set_ylabel("SalePrice")
                     ax.spines[["top", "right"]].set_visible(False)
@@ -401,10 +573,11 @@ def render_predict():
                 with st.container(border=True):
                     st.metric("Estimated Price", f"${price:,.0f}", help=f"{model_name} on {total_sf:,} sq ft · {neighborhood}")
         else:
-            st.info("Select specifications and click Predict Price.")
+            note("Select specifications and click Predict Price.")
 
 
 ROUTES = {
+    "Datasets": render_datasets,
     "Upload": render_upload,
     "Explore": render_eda,
     "Train": render_train,
@@ -412,5 +585,8 @@ ROUTES = {
 }
 PAGES = list(ROUTES)
 
-sidebar()
-ROUTES[st.session_state.page]()
+if st.session_state.token is None:
+    render_auth()
+else:
+    sidebar()
+    ROUTES[st.session_state.page]()
