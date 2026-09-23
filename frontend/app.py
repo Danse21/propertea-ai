@@ -75,18 +75,19 @@ _cached_top_mover_correlations = st.cache_data(top_mover_correlations)
 def sidebar():
     with st.sidebar:
         sidebar_brand()
-        for group, pages in NAV.items():
-            st.html(f"<div class='nav-group'>{group}</div>")
-            for page in pages:
-                active = st.session_state.page == page
-                if st.button(
-                    page,
-                    key=f"nav-{page}",
-                    type="primary" if active else "tertiary",
-                    use_container_width=True,
-                ):
-                    st.session_state.page = page
-                    st.rerun()
+        current = st.session_state.page
+        for page in NAV:
+            active = current == page or SUBPAGES.get(current) == page
+            if st.button(
+                page,
+                key=f"nav-{page}",
+                type="primary" if active else "tertiary",
+                use_container_width=True,
+            ):
+                st.session_state.page = page
+                st.rerun()
+            if SUBPAGES.get(current) == page:
+                st.html(f"<div class='nav-sub'>\u21b3 {current}</div>")
 
         st.html(
             f"<div class='session-badge'><span class='lbl'>SIGNED IN</span>"
@@ -220,9 +221,14 @@ def _dataset_meta() -> str:
 def active_dataset_bar() -> None:
     if st.session_state.dataset_id is None:
         return
-    bar_col, switch_col = st.columns([5, 1])
+    bar_col, prep_col, switch_col = st.columns([5, 1, 1])
     with bar_col:
         context_bar(st.session_state.dataset_name, _dataset_meta())
+    with prep_col:
+        spacer(24)
+        if st.button("Prepare", key=f"prepare-{st.session_state.page}", use_container_width=True):
+            st.session_state.page = "Prepare"
+            st.rerun()
     with switch_col:
         spacer(24)
         if st.button("Switch", key=f"switch-{st.session_state.page}", use_container_width=True):
@@ -263,6 +269,10 @@ def render_datasets():
 
     if not datasets:
         note("Nothing here yet. Upload a CSV to get started.")
+        spacer(24)
+        if st.button("Upload your first dataset", key="datasets-first-upload", type="primary"):
+            st.session_state.page = "Upload"
+            st.rerun()
         return
 
     for ds in datasets:
@@ -294,6 +304,8 @@ def render_datasets():
                     use_container_width=True,
                 ):
                     _select_dataset(ds, models)
+                if st.button("Prepare", key=f"prep-{ds['id']}", type="tertiary", use_container_width=True):
+                    _select_dataset(ds, models, goto="Prepare")
 
             if models:
                 with st.expander(f"{len(models)} trained model{'s' if len(models) > 1 else ''}"):
@@ -399,14 +411,26 @@ def render_upload():
     spacer(24)
     goes_to = "Explore" if st.session_state.ames_ready else "Prepare"
     ready = st.session_state.dataset_id is not None
-    if st.button(
-        f"Continue to {goes_to} \u2192",
-        type="primary",
-        disabled=not ready,
-        help=None if ready else "Upload or fetch a dataset first.",
-    ):
-        st.session_state.page = goes_to
-        st.rerun()
+    go_col, other_col, _rest = st.columns([1, 1, 2])
+    with go_col:
+        if st.button(
+            f"Continue to {goes_to} \u2192",
+            type="primary",
+            disabled=not ready,
+            help=None if ready else "Upload or fetch a dataset first.",
+            use_container_width=True,
+        ):
+            st.session_state.page = goes_to
+            st.rerun()
+    with other_col:
+        other = "Prepare" if goes_to == "Explore" else "Datasets"
+        if st.button(
+            f"Go to {other}",
+            disabled=not ready,
+            use_container_width=True,
+        ):
+            st.session_state.page = other
+            st.rerun()
 
 
 def _try_load(persist):
@@ -1241,10 +1265,8 @@ ROUTES = {
     "Predict": render_predict,
     "Prepare": render_prepare,
 }
-NAV = {
-    "v1 \u00b7 guided flow": ["Datasets", "Upload", "Explore", "Train", "Predict"],
-    "Data lab": ["Prepare"],
-}
+NAV = ["Datasets", "Explore", "Train", "Predict"]
+SUBPAGES = {"Upload": "Datasets", "Prepare": "Datasets"}
 
 if st.session_state.token is None:
     render_auth()

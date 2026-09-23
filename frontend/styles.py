@@ -182,6 +182,12 @@ html, body, [class*="css"] {
     color: var(--session-badge-label-ink);
     margin: var(--space-9) 0 var(--space-3) var(--space-7);
 }
+.nav-sub {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-cream-300);
+    margin: var(--space-1) 0 var(--space-3) var(--space-11);
+}
 .nav-group:first-of-type {
     margin-top: var(--space-4);
 }
