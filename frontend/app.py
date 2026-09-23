@@ -878,63 +878,6 @@ def _undo_op() -> None:
     st.rerun()
 
 
-def _dataset_picker() -> None:
-    try:
-        datasets = api_client.list_datasets(st.session_state.token)
-    except api_client.BackendUnreachableError as e:
-        st.error(f"Can't reach the backend: {e}")
-        return
-    except api_client.ApiError as e:
-        st.error(f"Couldn't load your datasets: {e}")
-        return
-
-    if not datasets:
-        st.caption("Nothing uploaded yet \u2014 add a CSV below.")
-        return
-
-    labels = {
-        f"{ds['name']} \u00b7 {ds['n_rows']:,} rows \u00b7 target {ds['target_column'] or 'not set'}"
-        f" \u00b7 {_pretty_date(ds['created_at'])}": ds
-        for ds in datasets
-    }
-    pick_col, open_col = st.columns([4, 1])
-    with pick_col:
-        picked = st.selectbox("Open a dataset", list(labels), key="prep_pick")
-    with open_col:
-        spacer(35)
-        open_clicked = st.button("Open", key="prep_open", use_container_width=True)
-
-    if open_clicked:
-        if _prep_unsaved() and st.session_state.prep_source is not None:
-            st.session_state.prep_pending_switch = picked
-            st.rerun()
-        _open_picked(labels[picked])
-
-    pending = st.session_state.get("prep_pending_switch")
-    if pending and pending in labels:
-        st.warning(
-            f"{len(st.session_state.prep_history)} unsaved change(s) on "
-            f"\u201c{st.session_state.dataset_name}\u201d will be lost if you switch now."
-        )
-        go_col, stay_col = st.columns(2)
-        with go_col:
-            if st.button("Switch anyway", key="prep-switch-yes", use_container_width=True):
-                st.session_state.prep_pending_switch = None
-                _open_picked(labels[pending])
-        with stay_col:
-            if st.button("Stay here", key="prep-switch-no", type="tertiary", use_container_width=True):
-                st.session_state.prep_pending_switch = None
-                st.rerun()
-
-
-def _open_picked(ds: dict) -> None:
-    try:
-        models = api_client.list_models(st.session_state.token, ds["id"])
-    except api_client.ApiError:
-        models = []
-    _select_dataset(ds, models, goto="Prepare")
-
-
 def _prep_unsaved() -> bool:
     return len(st.session_state.prep_history) != st.session_state.prep_saved_at
 
@@ -976,11 +919,8 @@ def render_prepare():
     page_header(
         "Prepare data",
         "Prepare data",
-        "Open or upload any CSV, clean it, then save the result as a new dataset.",
+        "Clean the open dataset, then save the result as a new one.",
     )
-
-    with st.expander("Open a saved dataset", expanded=st.session_state.dataset_id is None):
-        _dataset_picker()
 
     prep = _prep_frame()
     if prep is None:
