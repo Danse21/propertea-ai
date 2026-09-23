@@ -221,19 +221,7 @@ def _dataset_meta() -> str:
 def active_dataset_bar() -> None:
     if st.session_state.dataset_id is None:
         return
-    bar_col, prep_col, switch_col = st.columns([5, 1, 1])
-    with bar_col:
-        context_bar(st.session_state.dataset_name, _dataset_meta())
-    with prep_col:
-        spacer(24)
-        if st.button("Prepare", key=f"prepare-{st.session_state.page}", use_container_width=True):
-            st.session_state.page = "Prepare"
-            st.rerun()
-    with switch_col:
-        spacer(24)
-        if st.button("Switch", key=f"switch-{st.session_state.page}", use_container_width=True):
-            st.session_state.page = "Datasets"
-            st.rerun()
+    context_bar(st.session_state.dataset_name, _dataset_meta())
 
 
 def _missing_prerequisite(message: str, action_label: str, page: str, key: str) -> None:
@@ -298,14 +286,13 @@ def render_datasets():
 
             with action:
                 spacer(24)
-                if st.button(
-                    "Reopen" if is_active else "Open dataset",
-                    key=f"pick-{ds['id']}",
-                    use_container_width=True,
-                ):
-                    _select_dataset(ds, models)
-                if st.button("Prepare", key=f"prep-{ds['id']}", type="tertiary", use_container_width=True):
-                    _select_dataset(ds, models, goto="Prepare")
+                explore_col, prepare_col = st.columns(2)
+                with explore_col:
+                    if st.button("Explore", key=f"pick-{ds['id']}", use_container_width=True):
+                        _select_dataset(ds, models, goto="Explore")
+                with prepare_col:
+                    if st.button("Prepare", key=f"prep-{ds['id']}", use_container_width=True):
+                        _select_dataset(ds, models, goto="Prepare")
 
             if models:
                 with st.expander(f"{len(models)} trained model{'s' if len(models) > 1 else ''}"):
@@ -324,9 +311,7 @@ def render_datasets():
                     )
 
 
-def upload_panel(key_prefix: str, *, default_target: str | None = None) -> None:
-    if default_target is not None and f"{key_prefix}-target" not in st.session_state:
-        st.session_state.target_column = default_target
+def upload_panel(key_prefix: str) -> None:
     with st.container(border=True):
         name_col, target_col = st.columns(2)
         with name_col:
@@ -997,9 +982,6 @@ def render_prepare():
     with st.expander("Open a saved dataset", expanded=st.session_state.dataset_id is None):
         _dataset_picker()
 
-    with st.expander("Upload a dataset", expanded=st.session_state.dataset_id is None):
-        upload_panel("prep-upload", default_target="")
-
     prep = _prep_frame()
     if prep is None:
         return
@@ -1021,22 +1003,10 @@ def render_prepare():
 
     if st.session_state.prep_saved_as:
         saved = st.session_state.prep_saved_as
-        done_col, open_col = st.columns([4, 1])
-        with done_col:
-            badge(f"Saved \u201c{saved['name']}\u201d \u2014 {saved['n_rows']:,} rows \u00d7 {saved['n_columns']} columns. "
-                  f"\u201c{st.session_state.dataset_name}\u201d stays open here.")
-        with open_col:
-            if st.button("Open saved dataset", key="prep-open-saved", use_container_width=True):
-                try:
-                    ds = next(
-                        d for d in api_client.list_datasets(st.session_state.token)
-                        if d["id"] == saved["id"]
-                    )
-                except (api_client.ApiError, StopIteration):
-                    st.error("Couldn't open it \u2014 find it on the Datasets page.")
-                else:
-                    st.session_state.prep_saved_as = None
-                    _select_dataset(ds, [], goto="Prepare")
+        badge(
+            f"Saved \u201c{saved['name']}\u201d \u2014 {saved['n_rows']:,} rows \u00d7 {saved['n_columns']} columns. "
+            f"\u201c{st.session_state.dataset_name}\u201d stays open here; find the new one on Datasets."
+        )
 
     with st.container(border=True):
         st.subheader("Data")
