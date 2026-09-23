@@ -86,6 +86,13 @@ class TestTrainModel:
         assert 0 < rmse < 1.0
 
     @pytest.mark.parametrize("algo", list(MODELS.keys()))
+    def test_trains_without_error_and_reports_a_plausible_r2(self, algo):
+        df = make_training_df()
+        result = train_model(df, algo)
+        r2 = result["metrics"]["r2"]
+        assert -1.0 < r2 <= 1.0
+
+    @pytest.mark.parametrize("algo", list(MODELS.keys()))
     def test_returned_pipeline_can_predict_a_single_row(self, algo):
         df = make_training_df()
         result = train_model(df, algo)
@@ -97,7 +104,7 @@ class TestTrainModel:
         result = train_model(make_training_df(), "Linear Regression")
         assert result["best_params"] is None
 
-    @pytest.mark.parametrize("algo", ["Decision Tree", "Random Forest"])
+    @pytest.mark.parametrize("algo", ["Ridge", "Lasso", "Elastic Net", "Random Forest"])
     def test_tuned_models_report_best_params_from_their_grid(self, algo):
         result = train_model(make_training_df(), algo)
         assert result["best_params"] is not None
@@ -155,3 +162,4 @@ class TestBuildPredictRow:
         df = make_valid_df()
         row = build_predict_row(compute_defaults(prepare_data(df)), {})
         assert len(row) == 1
+

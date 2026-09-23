@@ -55,6 +55,7 @@ def test_train_happy_path(client, auth, db_session):
     assert r.status_code == 201, r.text
     body = r.json()
     assert 0 < body["metrics"]["rmse_log"] < 1.0
+    assert -1.0 < body["metrics"]["r2"] <= 1.0
     assert body["best_params"] is None
     assert isinstance(body["importances"], dict) and len(body["importances"]) > 0
 
@@ -103,24 +104,24 @@ def _train(client, auth, ds_id, algo="Linear Regression"):
 def test_list_models_for_dataset(client, auth):
     ds_id = _upload_training_dataset(client, auth).json()["id"]
     _train(client, auth, ds_id, algo="Linear Regression")
-    _train(client, auth, ds_id, algo="Decision Tree")
+    _train(client, auth, ds_id, algo="Ridge")
 
     r = client.get(f"/datasets/{ds_id}/models", headers=auth)
     assert r.status_code == 200
     body = r.json()
     assert len(body) == 2
-    assert {m["algo"] for m in body} == {"Linear Regression", "Decision Tree"}
+    assert {m["algo"] for m in body} == {"Linear Regression", "Ridge"}
     assert "artifact" not in body[0]
 
     by_algo = {m["algo"]: m for m in body}
     assert len(by_algo["Linear Regression"]["importances"]) > 0
     assert by_algo["Linear Regression"]["best_params"] is None
-    assert by_algo["Decision Tree"]["best_params"]["model__max_depth"] in (4, 6, 8)
+    assert by_algo["Ridge"]["best_params"]["model__alpha"] in (0.1, 1.0, 10.0, 50.0)
 
 
 def test_listed_model_matches_what_training_returned(client, auth):
     ds_id = _upload_training_dataset(client, auth).json()["id"]
-    trained = _train(client, auth, ds_id, algo="Decision Tree").json()
+    trained = _train(client, auth, ds_id, algo="Ridge").json()
 
     listed = client.get(f"/datasets/{ds_id}/models", headers=auth).json()[0]
     assert listed["id"] == trained["model_id"]
