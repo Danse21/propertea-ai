@@ -6,3 +6,4 @@ __pycache__/
 .pytest_cache/
 .coverage
 *.py[cod]
+exploratory-data-analysis/data/realtor-data.csv
