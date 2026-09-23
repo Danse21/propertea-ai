@@ -118,7 +118,7 @@ html, body, [class*="css"] {
     padding-bottom: 1rem !important;
     padding-left: 2rem !important;
     padding-right: 2rem !important;
-    max-width: 1100px !important;
+    max-width: 1400px !important;
     margin-left: auto !important;
     margin-right: auto !important;
 }
@@ -367,7 +367,7 @@ div[data-testid="stMetricValue"] {
 }
 [data-testid="stRadioOption"] {
     flex: 1 !important;
-    border: 1px solid var(--ink-faint) !important;
+    border: 2px solid var(--ink-faint) !important;
     background: transparent !important;
     border-radius: 10px !important;
     padding: var(--space-9) var(--space-8) !important;
