@@ -12,6 +12,7 @@ MIGRATIONS = (
     "ALTER TABLE models ADD COLUMN IF NOT EXISTS importances JSON",
     "ALTER TABLE models ADD COLUMN IF NOT EXISTS best_params JSON",
     "UPDATE models SET importances = '{}'::json WHERE importances IS NULL",
+    "ALTER TABLE datasets ALTER COLUMN target_column DROP NOT NULL",
 )
 
 

@@ -24,7 +24,7 @@ class Dataset(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
     source_url: Mapped[str | None] = mapped_column(String(2048))
-    target_column: Mapped[str] = mapped_column(String(255))
+    target_column: Mapped[str | None] = mapped_column(String(255), nullable=True)
     n_rows: Mapped[int] = mapped_column(Integer, default=0)
     owner_id: Mapped[str | None] = mapped_column(String(64), index=True)
     created_at: Mapped[datetime] = mapped_column(

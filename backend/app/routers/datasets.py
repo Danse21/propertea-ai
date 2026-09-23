@@ -36,7 +36,7 @@ def get_owned_dataset(db: Session, dataset_id: int, user: User) -> Dataset:
     return ds
 
 
-def parse_csv(raw: bytes, target_column: str) -> pd.DataFrame:
+def parse_csv(raw: bytes, target_column: str | None) -> pd.DataFrame:
     if not raw:
         raise HTTPException(400, "File is empty")
     try:
@@ -46,7 +46,7 @@ def parse_csv(raw: bytes, target_column: str) -> pd.DataFrame:
         raise HTTPException(400, f"Could not parse CSV: {exc}") from exc
     if df.empty:
         raise HTTPException(400, "CSV has a header but no rows")
-    if target_column not in df.columns:
+    if target_column is not None and target_column not in df.columns:
         raise HTTPException(
             400,
             f"target_column {target_column!r} not found. Columns: {list(df.columns)[:20]}",
@@ -66,7 +66,7 @@ def persist(
     db: Session,
     *,
     name: str,
-    target_column: str,
+    target_column: str | None,
     source_url: str | None,
     owner_id: str | None,
     df: pd.DataFrame,
@@ -131,8 +131,8 @@ async def upload_dataset(
     db: DbDep,
     file: Annotated[UploadFile, File()],
     name: Annotated[str, Form(min_length=1, max_length=255)],
-    target_column: Annotated[str, Form(min_length=1, max_length=255)],
     user: CurrentUserDep,
+    target_column: Annotated[str | None, Form(max_length=255)] = None,
 ) -> Dataset:
     if file.size is not None and file.size > MAX_BYTES:
         raise HTTPException(

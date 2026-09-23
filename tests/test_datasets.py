@@ -139,3 +139,39 @@ def test_from_url(client, auth, monkeypatch, csv_bytes):
     )
     assert r.status_code == 201, r.text
     assert r.json()["source_url"] == "https://example.com/train.csv"
+
+
+def test_upload_without_target_column(client, auth, csv_bytes):
+    r = client.post(
+        "/datasets/upload",
+        files={"file": ("anything.csv", csv_bytes, "text/csv")},
+        data={"name": "no-target"},
+        headers=auth,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["target_column"] is None
+
+
+def test_upload_of_non_ames_csv_is_accepted(client, auth):
+    r = client.post(
+        "/datasets/upload",
+        files={"file": ("iris.csv", b"sepal,petal,species\n5.1,1.4,setosa\n", "text/csv")},
+        data={"name": "iris"},
+        headers=auth,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["n_rows"] == 1
+
+
+def test_from_url_without_target_column(client, auth, monkeypatch, csv_bytes):
+    async def fake_fetch(url: str) -> bytes:
+        return csv_bytes
+
+    monkeypatch.setattr("app.routers.datasets.fetch", fake_fetch)
+    r = client.post(
+        "/datasets/from-url",
+        json={"url": "https://example.com/train.csv", "name": "no-target"},
+        headers=auth,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["target_column"] is None

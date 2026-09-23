@@ -39,6 +39,14 @@ CORR_LEGEND = [
 ]
 
 
+def is_ames_shaped(df: pd.DataFrame, *, require_target: bool = True) -> bool:
+    try:
+        validate_data(df, require_target=require_target)
+    except DataValidationError:
+        return False
+    return True
+
+
 def missingness_summary(df: pd.DataFrame) -> pd.Series:
     pct = (df.isna().sum() / len(df) * 100).round(1)
     return pct[pct > 0].sort_values(ascending=False)

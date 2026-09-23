@@ -17,9 +17,9 @@ from eda_service import (
     TARGET_COLUMN,
     DataValidationError,
     build_plot,
+    is_ames_shaped,
     missingness_summary,
     top_mover_correlations,
-    validate_data,
 )
 from styles import CSS
 from theme import COLORS, HEATMAP_CMAP
@@ -40,6 +40,10 @@ if "_uploaded_file_id" not in st.session_state:
     st.session_state._uploaded_file_id = None
 if "dataset_name" not in st.session_state:
     st.session_state.dataset_name = "ames-house-prices"
+if "target_column" not in st.session_state:
+    st.session_state.target_column = TARGET_COLUMN
+if "ames_ready" not in st.session_state:
+    st.session_state.ames_ready = True
 if "models" not in st.session_state:
     st.session_state.models = {}
 if "page" not in st.session_state:
@@ -160,6 +164,11 @@ def _select_dataset(ds: dict, models: list[dict]) -> None:
         "n_rows": ds["n_rows"],
         "n_columns": len(preview["columns"]),
     }
+    st.session_state.prep_df = None
+    st.session_state.prep_source = None
+    st.session_state.ames_ready = is_ames_shaped(
+        pd.DataFrame(preview["rows"], columns=preview["columns"])
+    )
     st.session_state.models = {
         m["algo"]: {
             "model_id": m["id"],
@@ -169,7 +178,7 @@ def _select_dataset(ds: dict, models: list[dict]) -> None:
         }
         for m in reversed(models)
     }
-    st.session_state.page = "Explore"
+    st.session_state.page = "Explore" if st.session_state.ames_ready else "Prepare"
     st.rerun()
 
 
@@ -254,13 +263,28 @@ def render_upload():
     _left_pad, main_col, _right_pad = st.columns([1, 8, 1])
     with main_col:
         with st.container(border=True):
+            name_col, target_col = st.columns(2)
+            with name_col:
+                st.session_state.dataset_name = st.text_input(
+                    "DATASET NAME", value=st.session_state.dataset_name
+                )
+            with target_col:
+                st.session_state.target_column = st.text_input(
+                    "TARGET COLUMN (optional)",
+                    value=st.session_state.target_column,
+                    help="The column you want to predict. Leave it empty and pick one later on the Prepare page.",
+                )
+
             uploaded = st.file_uploader(
                 "Drag and drop a CSV file here, or browse", type="csv"
             )
             if uploaded is not None and uploaded.file_id != st.session_state._uploaded_file_id:
                 st.session_state._uploaded_file_id = uploaded.file_id
                 _try_load(lambda: api_client.upload_dataset(
-                    st.session_state.token, uploaded, st.session_state.dataset_name, TARGET_COLUMN
+                    st.session_state.token,
+                    uploaded,
+                    st.session_state.dataset_name,
+                    st.session_state.target_column or None,
                 ))
 
             st.html("<strong><div class='divider'>OR PASTE A URL</div></strong>")
@@ -276,14 +300,11 @@ def render_upload():
                 fetch_clicked = st.button("Fetch dataset", use_container_width=True)
             if fetch_clicked and url:
                 _try_load(lambda: api_client.fetch_dataset_from_url(
-                    st.session_state.token, url, st.session_state.dataset_name, TARGET_COLUMN
+                    st.session_state.token,
+                    url,
+                    st.session_state.dataset_name,
+                    st.session_state.target_column or None,
                 ))
-
-            name_col, target_col = st.columns(2)
-            with name_col:
-                st.session_state.dataset_name = st.text_input("DATASET NAME", value=st.session_state.dataset_name)
-            with target_col:
-                st.text_input("TARGET COLUMN", value=TARGET_COLUMN, disabled=True)
 
         summary = st.session_state.dataset_summary
         if summary is not None:
@@ -310,10 +331,6 @@ def _try_load(persist):
     dataset_id = response["id"]
     try:
         preview = api_client.get_dataset(st.session_state.token, dataset_id, limit=1)
-        validate_data(pd.DataFrame(preview["rows"], columns=preview["columns"]), require_target=True)
-    except DataValidationError as e:
-        st.error(f"This doesn't look like valid Ames housing data: {e}")
-        return
     except api_client.ApiError as e:
         st.error(f"Uploaded, but couldn't verify the dataset: {e}")
         return
@@ -321,6 +338,29 @@ def _try_load(persist):
     st.session_state.dataset_id = dataset_id
     st.session_state.dataset_summary = {"n_rows": response["n_rows"], "n_columns": len(preview["columns"])}
     st.session_state.models = {}
+    st.session_state.prep_df = None
+    st.session_state.prep_source = None
+    st.session_state.ames_ready = is_ames_shaped(
+        pd.DataFrame(preview["rows"], columns=preview["columns"])
+    )
+    if not st.session_state.ames_ready:
+        st.warning(
+            "This isn't Ames housing data, so the v1 pages (Explore, Train, Predict) stay locked. "
+            "Use the Prepare page to work with it."
+        )
+
+
+def _require_ames_dataset() -> pd.DataFrame | None:
+    df = _require_dataset()
+    if df is None:
+        return None
+    if not is_ames_shaped(df):
+        note(
+            "This dataset isn't Ames housing data, so this page can't run on it. "
+            "Open Prepare to inspect and clean it, or upload the Ames CSV."
+        )
+        return None
+    return df
 
 
 def _require_dataset() -> pd.DataFrame | None:
@@ -339,7 +379,7 @@ def render_eda():
     st.title("Exploratory data analysis (EDA)")
     st.caption("A quick look at the target distribution, missing data, and which features move price the most — before training.")
 
-    df = _require_dataset()
+    df = _require_ames_dataset()
     if df is None:
         return
 
@@ -427,7 +467,7 @@ def render_train():
     st.title("Train machine learning models")
     st.caption("Pick an algorithm and fit it on the cleaned dataset.")
 
-    df = _require_dataset()
+    df = _require_ames_dataset()
     if df is None:
         return
 
@@ -498,7 +538,7 @@ def render_predict():
     st.title("Predict a house price")
     st.caption("Select specifications and Predict price.")
 
-    df = _require_dataset()
+    df = _require_ames_dataset()
     if df is None:
         return
     if not st.session_state.models:
