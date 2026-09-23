@@ -257,6 +257,56 @@ def render_datasets():
             st.rerun()
 
 
+def upload_panel(key_prefix: str, *, default_target: str | None = None) -> None:
+    if default_target is not None and f"{key_prefix}-target" not in st.session_state:
+        st.session_state.target_column = default_target
+    with st.container(border=True):
+        name_col, target_col = st.columns(2)
+        with name_col:
+            st.session_state.dataset_name = st.text_input(
+                "DATASET NAME", value=st.session_state.dataset_name, key=f"{key_prefix}-name"
+            )
+        with target_col:
+            st.session_state.target_column = st.text_input(
+                "TARGET COLUMN (optional)",
+                value=st.session_state.target_column,
+                key=f"{key_prefix}-target",
+                help="The column you want to predict. Leave it empty and pick one later when you save.",
+            )
+
+        uploaded = st.file_uploader(
+            "Drag and drop a CSV file here, or browse", type="csv", key=f"{key_prefix}-file"
+        )
+        if uploaded is not None and uploaded.file_id != st.session_state._uploaded_file_id:
+            st.session_state._uploaded_file_id = uploaded.file_id
+            _try_load(lambda: api_client.upload_dataset(
+                st.session_state.token,
+                uploaded,
+                st.session_state.dataset_name,
+                st.session_state.target_column or None,
+            ))
+
+        st.html("<strong><div class='divider'>OR PASTE A URL</div></strong>")
+
+        col_url, col_btn = st.columns([3, 1])
+        with col_url:
+            url = st.text_input(
+                "CSV URL",
+                placeholder="https://raw.githubusercontent.com/propertea-ai/data/main/train.csv",
+                key=f"{key_prefix}-url",
+            )
+        with col_btn:
+            spacer(35)
+            fetch_clicked = st.button("Fetch dataset", key=f"{key_prefix}-fetch", use_container_width=True)
+        if fetch_clicked and url:
+            _try_load(lambda: api_client.fetch_dataset_from_url(
+                st.session_state.token,
+                url,
+                st.session_state.dataset_name,
+                st.session_state.target_column or None,
+            ))
+
+
 def render_upload():
     crumb("Upload")
     st.title("Upload Dataset")
@@ -264,55 +314,13 @@ def render_upload():
 
     _left_pad, main_col, _right_pad = st.columns([1, 8, 1])
     with main_col:
-        with st.container(border=True):
-            name_col, target_col = st.columns(2)
-            with name_col:
-                st.session_state.dataset_name = st.text_input(
-                    "DATASET NAME", value=st.session_state.dataset_name
-                )
-            with target_col:
-                st.session_state.target_column = st.text_input(
-                    "TARGET COLUMN (optional)",
-                    value=st.session_state.target_column,
-                    help="The column you want to predict. Leave it empty and pick one later on the Prepare page.",
-                )
-
-            uploaded = st.file_uploader(
-                "Drag and drop a CSV file here, or browse", type="csv"
-            )
-            if uploaded is not None and uploaded.file_id != st.session_state._uploaded_file_id:
-                st.session_state._uploaded_file_id = uploaded.file_id
-                _try_load(lambda: api_client.upload_dataset(
-                    st.session_state.token,
-                    uploaded,
-                    st.session_state.dataset_name,
-                    st.session_state.target_column or None,
-                ))
-
-            st.html("<strong><div class='divider'>OR PASTE A URL</div></strong>")
-
-            col_url, col_btn = st.columns([3, 1])
-            with col_url:
-                url = st.text_input(
-                    "CSV URL",
-                    placeholder="https://raw.githubusercontent.com/propertea-ai/data/main/train.csv",
-                )
-            with col_btn:
-                spacer(35)
-                fetch_clicked = st.button("Fetch dataset", use_container_width=True)
-            if fetch_clicked and url:
-                _try_load(lambda: api_client.fetch_dataset_from_url(
-                    st.session_state.token,
-                    url,
-                    st.session_state.dataset_name,
-                    st.session_state.target_column or None,
-                ))
+        upload_panel("upload")
 
         summary = st.session_state.dataset_summary
         if summary is not None:
-            badge(f"Dataset successfully uploaded: {summary['n_rows']:,} rows × {summary['n_columns']} columns", large=True)
+            badge(f"Dataset successfully uploaded: {summary['n_rows']:,} rows \u00d7 {summary['n_columns']} columns", large=True)
 
-        if st.button("Continue to Explore data →", type="primary", use_container_width=True):
+        if st.button("Continue to Explore data \u2192", type="primary", use_container_width=True):
             if st.session_state.dataset_id is None:
                 st.error("Dataset not added.")
             else:
@@ -367,7 +375,7 @@ def _require_ames_dataset() -> pd.DataFrame | None:
 
 def _require_dataset() -> pd.DataFrame | None:
     if st.session_state.dataset_id is None:
-        st.warning("Upload a dataset first — see the Upload page.")
+        st.warning("Upload a dataset first.")
         return None
     try:
         return _cached_get_full_dataset(st.session_state.token, st.session_state.dataset_id)
@@ -664,7 +672,16 @@ def _apply_op(op, frame: pd.DataFrame, *args) -> None:
 def render_prepare():
     crumb("Prepare data")
     st.title("Prepare data")
-    st.html("<p class='subtitle'>Trim columns, inspect the frame, plot it, then save it as a new dataset</p>")
+    st.html("<p class='subtitle'>Upload anything, trim it, inspect it, plot it, then save it as a new dataset</p>")
+
+    with st.expander("Upload a dataset", expanded=st.session_state.dataset_id is None):
+        upload_panel("prep-upload", default_target="")
+        if st.session_state.dataset_summary is not None and st.session_state.dataset_id is not None:
+            badge(
+                f"{st.session_state.dataset_name} \u00b7 "
+                f"{st.session_state.dataset_summary['n_rows']:,} rows \u00d7 "
+                f"{st.session_state.dataset_summary['n_columns']} columns"
+            )
 
     prep = _prep_frame()
     if prep is None:
