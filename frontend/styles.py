@@ -365,6 +365,10 @@ div[data-testid="stMetricValue"] {
     align-items: stretch !important;
     gap: var(--space-6) !important;
 }
+[data-testid="stRadioGroup"] > * {
+    flex: 1 !important;
+    min-width: 0 !important;
+}
 [data-testid="stRadioOption"] {
     flex: 1 !important;
     border: 2px solid var(--ink-faint) !important;
