@@ -24,7 +24,7 @@ from eda_service import (
 )
 from styles import CSS
 from theme import COLORS, HEATMAP_CMAP
-from ui import badge, crumb, note, sidebar_brand, spacer
+from ui import badge, context_bar, crumb, hint, note, page_header, sidebar_brand, spacer
 
 st.set_page_config(page_title="propertea-ai", page_icon="\U0001F3E0", layout="wide")
 st.html(CSS)
@@ -55,6 +55,16 @@ if "prep_source" not in st.session_state:
     st.session_state.prep_source = None
 if "prep_history" not in st.session_state:
     st.session_state.prep_history = []
+if "last_uploaded_id" not in st.session_state:
+    st.session_state.last_uploaded_id = None
+if "prep_saved_as" not in st.session_state:
+    st.session_state.prep_saved_as = None
+if "prediction" not in st.session_state:
+    st.session_state.prediction = None
+if "prep_saved_at" not in st.session_state:
+    st.session_state.prep_saved_at = 0
+if "prep_confirm_reset" not in st.session_state:
+    st.session_state.prep_confirm_reset = False
 
 _cached_get_full_dataset = st.cache_data(api_client.get_full_dataset)
 _cached_list_algorithms = st.cache_data(api_client.list_algorithms)
@@ -69,19 +79,20 @@ def sidebar():
             st.html(f"<div class='nav-group'>{group}</div>")
             for page in pages:
                 active = st.session_state.page == page
-                wrapper_class = "nav-active" if active else ""
-                st.markdown(f"<div class='{wrapper_class}'>", unsafe_allow_html=True)
-                if st.button(page, key=f"nav-{page}", use_container_width=True):
+                if st.button(
+                    page,
+                    key=f"nav-{page}",
+                    type="primary" if active else "tertiary",
+                    use_container_width=True,
+                ):
                     st.session_state.page = page
                     st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown(
+        st.html(
             f"<div class='session-badge'><span class='lbl'>SIGNED IN</span>"
-            f"{st.session_state.username}</div>",
-            unsafe_allow_html=True,
+            f"{st.session_state.username}</div>"
         )
-        if st.button("Log out", key="nav-logout", use_container_width=True):
+        if st.button("Log out", key="nav-logout", type="tertiary", use_container_width=True):
             _sign_out()
 
 
@@ -172,6 +183,10 @@ def _select_dataset(ds: dict, models: list[dict], goto: str | None = None) -> No
     st.session_state.prep_df = None
     st.session_state.prep_source = None
     st.session_state.prep_history = []
+    st.session_state.prep_saved_as = None
+    st.session_state.prep_saved_at = 0
+    st.session_state.last_uploaded_id = None
+    st.session_state.prediction = None
     st.session_state.ames_ready = is_ames_shaped(
         pd.DataFrame(preview["rows"], columns=preview["columns"])
     )
@@ -190,78 +205,111 @@ def _select_dataset(ds: dict, models: list[dict], goto: str | None = None) -> No
     st.rerun()
 
 
+def _dataset_meta() -> str:
+    summary = st.session_state.dataset_summary or {}
+    target = st.session_state.target_column
+    parts = []
+    if summary.get("n_rows") is not None:
+        parts.append(f"{summary['n_rows']:,} rows")
+    if summary.get("n_columns") is not None:
+        parts.append(f"{summary['n_columns']} columns")
+    parts.append(f"target {target}" if target else "no target set")
+    return " \u00b7 ".join(parts)
+
+
+def active_dataset_bar() -> None:
+    if st.session_state.dataset_id is None:
+        return
+    bar_col, switch_col = st.columns([5, 1])
+    with bar_col:
+        context_bar(st.session_state.dataset_name, _dataset_meta())
+    with switch_col:
+        spacer(24)
+        if st.button("Switch", key=f"switch-{st.session_state.page}", use_container_width=True):
+            st.session_state.page = "Datasets"
+            st.rerun()
+
+
+def _missing_prerequisite(message: str, action_label: str, page: str, key: str) -> None:
+    note(message)
+    spacer(24)
+    if st.button(action_label, key=key, type="primary"):
+        st.session_state.page = page
+        st.rerun()
+
+
+def _dataset_stamp(ds: dict) -> str:
+    return datetime.fromisoformat(ds["created_at"]).strftime("%d %b %Y, %H:%M")
+
+
 def render_datasets():
-    crumb("Datasets")
-    st.title("Your datasets")
-    st.html("<p class='subtitle'>Pick up where you left off, or start a new upload</p>")
+    head_col, action_col = st.columns([4, 1])
+    with head_col:
+        page_header("Datasets", "Your datasets", "Open one to explore, prepare, train or predict")
+    with action_col:
+        spacer(32)
+        if st.button("Upload dataset", key="datasets-upload", type="primary", use_container_width=True):
+            st.session_state.page = "Upload"
+            st.rerun()
 
-    _left_pad, main_col, _right_pad = st.columns([1, 8, 1])
-    with main_col:
+    try:
+        datasets = api_client.list_datasets(st.session_state.token)
+    except api_client.BackendUnreachableError as e:
+        st.error(f"Can't reach the backend: {e}")
+        return
+    except api_client.ApiError as e:
+        st.error(f"Couldn't load your datasets: {e}")
+        return
+
+    if not datasets:
+        note("Nothing here yet. Upload a CSV to get started.")
+        return
+
+    for ds in datasets:
         try:
-            datasets = api_client.list_datasets(st.session_state.token)
-        except api_client.BackendUnreachableError as e:
-            st.error(f"Can't reach the backend: {e}")
-            return
-        except api_client.ApiError as e:
-            st.error(f"Couldn't load your datasets: {e}")
-            return
+            models = api_client.list_models(st.session_state.token, ds["id"])
+        except api_client.ApiError:
+            models = []
 
-        if not datasets:
-            note("Nothing here yet. Upload a CSV to get started.")
-            if st.button("Go to Upload \u2192", type="primary", use_container_width=True):
-                st.session_state.page = "Upload"
-                st.rerun()
-            return
+        with st.container(border=True):
+            is_active = ds["id"] == st.session_state.dataset_id
+            header, action = st.columns([4, 1])
 
-        for ds in datasets:
-            try:
-                models = api_client.list_models(st.session_state.token, ds["id"])
-            except api_client.ApiError:
-                models = []
-
-            with st.container(border=True):
-                is_active = ds["id"] == st.session_state.dataset_id
-                header, action = st.columns([3, 1])
-
-                with header:
-                    st.subheader(ds["name"])
-                    source = "fetched from URL" if ds["source_url"] else "uploaded"
-                    target = ds["target_column"] or "not set"
-                    st.caption(
-                        f"{ds['n_rows']:,} rows \u00b7 target {target} \u00b7 "
-                        f"{source} \u00b7 {_pretty_date(ds['created_at'])}"
-                    )
-
-                with action:
-                    spacer(24)
-                    label = "Reopen" if is_active else "Continue with this"
-                    if st.button(label, key=f"pick-{ds['id']}", type="primary", use_container_width=True):
-                        _select_dataset(ds, models)
-
+            with header:
+                st.subheader(ds["name"])
+                source = "fetched from URL" if ds["source_url"] else "uploaded"
+                target = ds["target_column"] or "no target"
+                st.caption(
+                    f"{ds['n_rows']:,} rows \u00b7 {target} \u00b7 {source} \u00b7 "
+                    f"{_dataset_stamp(ds)} \u00b7 #{ds['id']}"
+                )
                 if is_active:
                     badge("Currently open")
 
-                if models:
-                    st.caption(f"{len(models)} trained model{'s' if len(models) > 1 else ''}")
+            with action:
+                spacer(24)
+                if st.button(
+                    "Reopen" if is_active else "Open dataset",
+                    key=f"pick-{ds['id']}",
+                    use_container_width=True,
+                ):
+                    _select_dataset(ds, models)
+
+            if models:
+                with st.expander(f"{len(models)} trained model{'s' if len(models) > 1 else ''}"):
                     st.dataframe(
                         [
                             {
                                 "Algorithm": m["algo"],
-                                "RMSE (log)": m["metrics"]["rmse_log"],
-                                "R²": m["metrics"].get("r2", "—"),
+                                "RMSE (log price)": round(m["metrics"]["rmse_log"], 4),
+                                "R\u00b2": round(m["metrics"]["r2"], 4) if m["metrics"].get("r2") is not None else "\u2014",
                                 "Trained": _pretty_date(m["created_at"]),
                             }
                             for m in models
                         ],
                         hide_index=True,
+                        use_container_width=True,
                     )
-                else:
-                    st.caption("No models trained on this dataset yet.")
-
-        spacer(24)
-        if st.button("Upload another dataset", use_container_width=True):
-            st.session_state.page = "Upload"
-            st.rerun()
 
 
 def upload_panel(key_prefix: str, *, default_target: str | None = None) -> None:
@@ -271,11 +319,11 @@ def upload_panel(key_prefix: str, *, default_target: str | None = None) -> None:
         name_col, target_col = st.columns(2)
         with name_col:
             st.session_state.dataset_name = st.text_input(
-                "DATASET NAME", value=st.session_state.dataset_name, key=f"{key_prefix}-name"
+                "Dataset name", value=st.session_state.dataset_name, key=f"{key_prefix}-name"
             )
         with target_col:
             st.session_state.target_column = st.text_input(
-                "TARGET COLUMN (optional)",
+                "Target column (optional)",
                 value=st.session_state.target_column,
                 key=f"{key_prefix}-target",
                 help="The column you want to predict. Leave it empty and pick one later when you save.",
@@ -284,16 +332,30 @@ def upload_panel(key_prefix: str, *, default_target: str | None = None) -> None:
         uploaded = st.file_uploader(
             "Drag and drop a CSV file here, or browse", type="csv", key=f"{key_prefix}-file"
         )
-        if uploaded is not None and uploaded.file_id != st.session_state._uploaded_file_id:
-            st.session_state._uploaded_file_id = uploaded.file_id
-            _try_load(lambda: api_client.upload_dataset(
-                st.session_state.token,
-                uploaded,
-                st.session_state.dataset_name,
-                st.session_state.target_column or None,
-            ))
+        if uploaded is not None:
+            file_col, send_col = st.columns([3, 1])
+            with file_col:
+                size = (
+                    f"{uploaded.size:,} B" if uploaded.size < 1024
+                    else f"{uploaded.size / 1024:,.0f} KB"
+                )
+                st.caption(f"{uploaded.name} \u00b7 {size} \u2014 not uploaded yet")
+            with send_col:
+                send_clicked = st.button(
+                    "Upload file", key=f"{key_prefix}-send", type="primary", use_container_width=True
+                )
+            if send_clicked:
+                uploaded.seek(0)
+                _try_load(lambda: api_client.upload_dataset(
+                    st.session_state.token,
+                    uploaded,
+                    st.session_state.dataset_name,
+                    st.session_state.target_column or None,
+                ))
+        else:
+            hint("Pick a CSV, then press Upload file. Nothing is sent until you do.")
 
-        st.html("<strong><div class='divider'>OR PASTE A URL</div></strong>")
+        st.html("<div class='divider'>OR PASTE A URL</div>")
 
         col_url, col_btn = st.columns([3, 1])
         with col_url:
@@ -304,7 +366,9 @@ def upload_panel(key_prefix: str, *, default_target: str | None = None) -> None:
             )
         with col_btn:
             spacer(35)
-            fetch_clicked = st.button("Fetch dataset", key=f"{key_prefix}-fetch", use_container_width=True)
+            fetch_clicked = st.button(
+                "Fetch dataset", key=f"{key_prefix}-fetch", disabled=not url.strip(), use_container_width=True
+            )
         if fetch_clicked and url:
             _try_load(lambda: api_client.fetch_dataset_from_url(
                 st.session_state.token,
@@ -315,34 +379,44 @@ def upload_panel(key_prefix: str, *, default_target: str | None = None) -> None:
 
 
 def render_upload():
-    crumb("Upload")
-    st.title("Upload Dataset")
-    st.html("<p class='subtitle'>Fetch a housing CSV from a URL, or drag one in directly</p>")
+    page_header("Upload", "Upload a dataset", "Send a CSV from your machine, or fetch one from a URL")
 
-    _left_pad, main_col, _right_pad = st.columns([1, 8, 1])
-    with main_col:
-        upload_panel("upload")
+    upload_panel("upload")
 
-        summary = st.session_state.dataset_summary
-        if summary is not None:
-            badge(f"Dataset successfully uploaded: {summary['n_rows']:,} rows \u00d7 {summary['n_columns']} columns", large=True)
+    just_uploaded = (
+        st.session_state.dataset_id is not None
+        and st.session_state.dataset_id == st.session_state.last_uploaded_id
+    )
+    summary = st.session_state.dataset_summary
+    if just_uploaded and summary is not None:
+        badge(
+            f"Uploaded \u201c{st.session_state.dataset_name}\u201d \u2014 "
+            f"{summary['n_rows']:,} rows \u00d7 {summary['n_columns']} columns"
+        )
+    elif st.session_state.dataset_id is not None:
+        st.caption(f"Currently open: {st.session_state.dataset_name}. A new upload replaces it.")
 
-        if st.button("Continue to Explore data \u2192", type="primary", use_container_width=True):
-            if st.session_state.dataset_id is None:
-                st.error("Dataset not added.")
-            else:
-                st.session_state.page = "Explore"
-                st.rerun()
+    spacer(24)
+    goes_to = "Explore" if st.session_state.ames_ready else "Prepare"
+    ready = st.session_state.dataset_id is not None
+    if st.button(
+        f"Continue to {goes_to} \u2192",
+        type="primary",
+        disabled=not ready,
+        help=None if ready else "Upload or fetch a dataset first.",
+    ):
+        st.session_state.page = goes_to
+        st.rerun()
 
 
 def _try_load(persist):
     try:
         response = persist()
     except api_client.BackendUnreachableError as e:
-        st.error(f"Can't reach the backend: {e}")
+        st.error(f"Can't reach the backend: {e} \u2014 press Upload file again to retry.")
         return
     except api_client.ApiError as e:
-        st.error(f"Couldn't save that dataset: {e}")
+        st.error(f"Couldn't save that dataset: {e} \u2014 fix it and try again.")
         return
 
     dataset_id = response["id"]
@@ -353,18 +427,21 @@ def _try_load(persist):
         return
 
     st.session_state.dataset_id = dataset_id
+    st.session_state.last_uploaded_id = dataset_id
     st.session_state.dataset_summary = {"n_rows": response["n_rows"], "n_columns": len(preview["columns"])}
     st.session_state.models = {}
     st.session_state.prep_df = None
     st.session_state.prep_source = None
     st.session_state.prep_history = []
+    st.session_state.prep_saved_at = 0
+    st.session_state.prep_saved_as = None
     st.session_state.ames_ready = is_ames_shaped(
         pd.DataFrame(preview["rows"], columns=preview["columns"])
     )
     if not st.session_state.ames_ready:
         st.warning(
-            "This isn't Ames housing data, so the v1 pages (Explore, Train, Predict) stay locked. "
-            "Use the Prepare page to work with it."
+            "This isn't Ames housing data, so Explore, Train and Predict stay locked. "
+            "Use Prepare to inspect and clean it."
         )
 
 
@@ -373,9 +450,12 @@ def _require_ames_dataset() -> pd.DataFrame | None:
     if df is None:
         return None
     if not is_ames_shaped(df):
-        note(
-            "This dataset isn't Ames housing data, so this page can't run on it. "
-            "Open Prepare to inspect and clean it, or upload the Ames CSV."
+        _missing_prerequisite(
+            f"\u201c{st.session_state.dataset_name}\u201d isn't Ames housing data, so this page can't run on "
+            "it: it needs the full Ames column set. Prepare it first, or open a dataset that has those columns.",
+            "Open Prepare \u2192",
+            "Prepare",
+            f"prereq-prepare-{st.session_state.page}",
         )
         return None
     return df
@@ -383,7 +463,12 @@ def _require_ames_dataset() -> pd.DataFrame | None:
 
 def _require_dataset() -> pd.DataFrame | None:
     if st.session_state.dataset_id is None:
-        st.warning("Upload a dataset first.")
+        _missing_prerequisite(
+            "No dataset is open yet. Upload a CSV or open one you saved earlier.",
+            "Upload a dataset \u2192",
+            "Upload",
+            f"prereq-upload-{st.session_state.page}",
+        )
         return None
     try:
         return _cached_get_full_dataset(st.session_state.token, st.session_state.dataset_id)
@@ -393,9 +478,12 @@ def _require_dataset() -> pd.DataFrame | None:
 
 
 def render_eda():
-    crumb("Explore data")
-    st.title("Exploratory data analysis (EDA)")
-    st.caption("A quick look at the target distribution, missing data, and which features move price the most — before training.")
+    page_header(
+        "Explore data",
+        "Exploratory data analysis",
+        "The target distribution, missing data, and which features move price the most \u2014 before training.",
+    )
+    active_dataset_bar()
 
     df = _require_ames_dataset()
     if df is None:
@@ -473,17 +561,19 @@ def render_eda():
                     unsafe_allow_html=True,
                 )
 
-    _left_pad, main_col, _right_pad = st.columns([1, 8, 1])
-    with main_col:
-        if st.button("Continue to Train model →", type="primary", use_container_width=True):
-            st.session_state.page = "Train"
-            st.rerun()
+    spacer(24)
+    if st.button("Continue to Train model \u2192", type="primary"):
+        st.session_state.page = "Train"
+        st.rerun()
 
 
 def render_train():
-    crumb("Train Model")
-    st.title("Train machine learning models")
-    st.caption("Pick an algorithm and fit it on the cleaned dataset.")
+    page_header(
+        "Train model",
+        "Train a model",
+        "Pick an algorithm and fit it on the cleaned dataset. Lower RMSE is better.",
+    )
+    active_dataset_bar()
 
     df = _require_ames_dataset()
     if df is None:
@@ -497,10 +587,8 @@ def render_train():
 
     algo = st.radio("Algorithm", names, horizontal=True, label_visibility="collapsed")
 
-    train_clicked = st.button("Train Model", type="primary")
-
-    if train_clicked:
-        with st.spinner("Training..."):
+    if st.button("Train model", type="primary"):
+        with st.spinner(f"Training {algo}\u2026"):
             try:
                 result = api_client.train(st.session_state.token, st.session_state.dataset_id, algo)
             except api_client.BackendUnreachableError as e:
@@ -514,53 +602,81 @@ def render_train():
                     "best_params": result["best_params"],
                     "importances": result["importances"],
                 }
+                st.session_state.prediction = None
 
     if algo in st.session_state.models:
-        with st.container(border=True):
-            st.subheader(f"Result — {algo}")
-            metrics = st.session_state.models[algo]["metrics"]
-            with st.container(border=True):
-                st.html(
-                    f"<div class='rmse-box-label'>RMSE: {metrics['rmse_log']} &nbsp;·&nbsp; "
-                    f"R²: {metrics.get('r2', '—')}</div>"
-                )
-            spacer(36)
-            badge("Model successfully trained and saved!", large=True)
-            spacer(24)
+        metrics = st.session_state.models[algo]["metrics"]
+        r2 = metrics.get("r2")
+        st.html(
+            f"<div class='rmse-box-label'>{algo} \u2014 RMSE (log price) {metrics['rmse_log']:.4f}"
+            f"{f' &nbsp;\u00b7&nbsp; R\u00b2 {r2:.4f}' if r2 is not None else ''}</div>"
+        )
+        badge("Trained and saved")
 
     if st.session_state.models:
         spacer(24)
         with st.container(border=True):
             st.subheader("Model comparison")
+            st.caption("RMSE (log price) \u2014 lower is better.")
             comparison = pd.DataFrame(
                 [
-                    {"Model": name, "RMSE (log price)": m["metrics"]["rmse_log"], "R²": m["metrics"].get("r2", "—")}
+                    {
+                        "Model": name,
+                        "RMSE (log price)": round(m["metrics"]["rmse_log"], 4),
+                        "R\u00b2": round(m["metrics"]["r2"], 4) if m["metrics"].get("r2") is not None else "\u2014",
+                    }
                     for name, m in st.session_state.models.items()
                 ]
             )
             st.dataframe(comparison, hide_index=True, use_container_width=True)
 
-    spacer(32)
-    _left_pad, main_col, _right_pad = st.columns([1, 8, 1])
-    with main_col:
-        if st.button("Continue to Predict →", type="primary", use_container_width=True):
-            if not st.session_state.models:
-                st.error("No model trained, choose a model and train.")
-            else:
-                st.session_state.page = "Predict"
-                st.rerun()
+    spacer(24)
+    trained = bool(st.session_state.models)
+    if st.button(
+        "Continue to Predict \u2192",
+        type="primary",
+        disabled=not trained,
+        help=None if trained else "Train at least one model first.",
+    ):
+        st.session_state.page = "Predict"
+        st.rerun()
+
+
+NEIGHBORHOODS = {
+    "Blmngtn": "Bloomington Heights", "Blueste": "Bluestem", "BrDale": "Briardale",
+    "BrkSide": "Brookside", "ClearCr": "Clear Creek", "CollgCr": "College Creek",
+    "Crawfor": "Crawford", "Edwards": "Edwards", "Gilbert": "Gilbert",
+    "IDOTRR": "Iowa DOT and Rail Road", "MeadowV": "Meadow Village", "Mitchel": "Mitchell",
+    "NAmes": "North Ames", "NoRidge": "Northridge", "NPkVill": "Northpark Villa",
+    "NridgHt": "Northridge Heights", "NWAmes": "Northwest Ames", "OldTown": "Old Town",
+    "SWISU": "South & West of Iowa State", "Sawyer": "Sawyer", "SawyerW": "Sawyer West",
+    "Somerst": "Somerset", "StoneBr": "Stone Brook", "Timber": "Timberland",
+    "Veenker": "Veenker",
+}
+
+QUALITY_LABELS = {
+    "Ex": "Excellent", "Gd": "Good", "TA": "Typical / average", "Fa": "Fair", "Po": "Poor",
+}
+
+
+def _labelled(mapping: dict[str, str]):
+    return lambda code: f"{mapping.get(code, code)} ({code})" if code in mapping else code
 
 
 def render_predict():
-    crumb("Predict")
-    st.title("Predict a house price")
-    st.caption("Select specifications and Predict price.")
+    page_header("Predict", "Predict a house price", "Describe the house, then run the model on it.")
+    active_dataset_bar()
 
     df = _require_ames_dataset()
     if df is None:
         return
     if not st.session_state.models:
-        st.warning("Train at least one model first; see the Train model page.")
+        _missing_prerequisite(
+            "No model has been trained on this dataset yet, so there is nothing to predict with.",
+            "Go to Train \u2192",
+            "Train",
+            "prereq-train-predict",
+        )
         return
 
     left, right = st.columns([2, 3])
@@ -569,81 +685,133 @@ def render_predict():
             model_name = st.selectbox(
                 "Model",
                 list(st.session_state.models.keys()),
-                format_func=lambda a: f"{a} — RMSE {st.session_state.models[a]['metrics']['rmse_log']}",
+                format_func=lambda a: f"{a} \u2014 RMSE {st.session_state.models[a]['metrics']['rmse_log']:.4f}",
             )
-            neighborhood = st.selectbox("Neighborhood", sorted(df["Neighborhood"].dropna().unique()))
-            overall_qual = st.slider("Overall Quality", 1, 10, 8)
-            first_flr_sf = st.number_input("First Floor SF", min_value=300, max_value=4000, value=1200)
-            second_flr_sf = st.number_input("Second Floor SF", min_value=0, max_value=2000, value=1000)
+
+            st.markdown("**Location and quality**")
+            neighborhood = st.selectbox(
+                "Neighborhood",
+                sorted(df["Neighborhood"].dropna().unique()),
+                format_func=_labelled(NEIGHBORHOODS),
+            )
+            overall_qual = st.slider(
+                "Overall quality (1 very poor \u2013 10 excellent)", 1, 10, 8
+            )
+            kitchen_qual = st.selectbox(
+                "Kitchen quality",
+                sorted(df["KitchenQual"].dropna().unique()),
+                format_func=_labelled(QUALITY_LABELS),
+            )
+
+            st.markdown("**Size**")
+            first_flr_sf = st.number_input("First-floor area (sq ft)", min_value=300, max_value=4000, value=1200)
+            second_flr_sf = st.number_input("Second-floor area (sq ft)", min_value=0, max_value=2000, value=1000)
+            total_bsmt_sf = st.number_input("Basement area (sq ft)", min_value=0, max_value=6000, value=1100)
             gr_liv_area = first_flr_sf + second_flr_sf
-            total_bsmt_sf = st.number_input("Total Basement SF", min_value=0, max_value=6000, value=1100)
-            total_sf = total_bsmt_sf + first_flr_sf + second_flr_sf
-            full_bath = st.slider("Full Bathrooms", 0, 4, 2)
-            year_built = st.number_input("Year Built", min_value=1870, max_value=2026, value=2005)
-            year_remod = st.number_input("Year Last Renovated", min_value=1870, max_value=2026, value=2005)
-            garage_cars = st.slider("Garage Cars", 0, 4, 2)
-            kitchen_qual = st.selectbox("Kitchen Quality", sorted(df["KitchenQual"].dropna().unique()))
-            predict_clicked = st.button("Predict Price", type="primary", use_container_width=True)
+            total_sf = total_bsmt_sf + gr_liv_area
+            st.caption(f"Living area {gr_liv_area:,} sq ft \u00b7 total with basement {total_sf:,} sq ft")
+
+            st.markdown("**Rooms, age and parking**")
+            full_bath = st.slider("Full bathrooms", 0, 4, 2)
+            garage_cars = st.slider("Garage capacity (cars)", 0, 4, 2)
+            year_built = st.number_input("Year built", min_value=1870, max_value=2026, value=2005)
+            year_remod = st.number_input("Year last renovated", min_value=1870, max_value=2026, value=2005)
+
+            predict_clicked = st.button("Predict price", type="primary", use_container_width=True)
+
+    overrides = {
+        "Neighborhood": neighborhood,
+        "OverallQual": overall_qual,
+        "1stFlrSF": first_flr_sf,
+        "2ndFlrSF": second_flr_sf,
+        "GrLivArea": gr_liv_area,
+        "TotalBsmtSF": total_bsmt_sf,
+        "FullBath": full_bath,
+        "YearBuilt": year_built,
+        "YearRemodAdd": year_remod,
+        "GarageCars": garage_cars,
+        "KitchenQual": kitchen_qual,
+    }
+
+    if predict_clicked:
+        try:
+            result = api_client.predict(
+                st.session_state.token,
+                st.session_state.models[model_name]["model_id"],
+                overrides,
+            )
+        except api_client.ApiError as e:
+            st.error(f"Couldn't generate a prediction: {e}")
+        else:
+            st.session_state.prediction = {
+                "price": result["prediction"],
+                "overrides": overrides,
+                "model": model_name,
+                "total_sf": total_sf,
+            }
 
     with right:
-        if predict_clicked:
-            try:
-                model_id = st.session_state.models[model_name]["model_id"]
-                result = api_client.predict(
-                    st.session_state.token,
-                    model_id,
-                    {
-                        "Neighborhood": neighborhood,
-                        "OverallQual": overall_qual,
-                        "1stFlrSF": first_flr_sf,
-                        "2ndFlrSF": second_flr_sf,
-                        "GrLivArea": gr_liv_area,
-                        "TotalBsmtSF": total_bsmt_sf,
-                        "FullBath": full_bath,
-                        "YearBuilt": year_built,
-                        "YearRemodAdd": year_remod,
-                        "GarageCars": garage_cars,
-                        "KitchenQual": kitchen_qual,
-                    },
-                )
-                price = result["prediction"]
-            except api_client.ApiError as e:
-                st.error(f"Couldn't generate a prediction: {e}")
+        prediction = st.session_state.prediction
+        if prediction is None:
+            note("Describe the house on the left, then press Predict price.")
+            return
+
+        stale = prediction["overrides"] != overrides or prediction["model"] != model_name
+        price = prediction["price"]
+        shown_sf = prediction["total_sf"]
+
+        with st.container(border=True):
+            st.metric(
+                "Estimated price",
+                f"${price:,.0f}",
+                help=f"{prediction['model']} on {shown_sf:,} sq ft \u00b7 "
+                f"{NEIGHBORHOODS.get(prediction['overrides']['Neighborhood'], prediction['overrides']['Neighborhood'])}",
+            )
+            if stale:
+                st.warning("Inputs changed since this estimate. Press Predict price to recalculate.")
             else:
-                with st.container(border=True):
-                    st.subheader("Feature importance")
-                    importances = st.session_state.models[model_name]["importances"]
-                    if not importances:
-                        st.caption("This model was trained before importances were recorded. Retrain it to see them.")
-                    else:
-                        labels = list(importances.keys())[::-1]
-                        values = list(importances.values())[::-1]
-                        fig_imp, ax_imp = plt.subplots(figsize=(7, 4))
-                        ax_imp.barh(labels, values, color=COLORS["accent"])
-                        ax_imp.set_xlabel("Importance (increase in RMSE when shuffled)")
-                        ax_imp.spines[["top", "right"]].set_visible(False)
-                        st.pyplot(fig_imp)
-                        plt.close(fig_imp)
+                st.caption(
+                    f"{prediction['model']} \u00b7 "
+                    f"{NEIGHBORHOODS.get(prediction['overrides']['Neighborhood'], prediction['overrides']['Neighborhood'])}"
+                    f" \u00b7 {shown_sf:,} sq ft total"
+                )
 
-                with st.container(border=True):
-                    st.subheader("Where this prediction falls")
-                    df_total_sf = df["TotalBsmtSF"] + df["1stFlrSF"] + df["2ndFlrSF"]
-                    fig, ax = plt.subplots(figsize=(7, 5))
-                    ax.scatter(df_total_sf, df["SalePrice"], alpha=0.35, color=COLORS["accent"], label="Historical sales")
-                    ax.scatter([total_sf], [price], s=140, color=COLORS["highlight"], edgecolor=COLORS["white"], linewidth=1.5, zorder=5, label="Your estimate")
-                    ax.axhline(price, color=COLORS["highlight"], linestyle="--", linewidth=1, alpha=0.6)
-                    ax.axvline(total_sf, color=COLORS["highlight"], linestyle="--", linewidth=1, alpha=0.6)
-                    ax.set_xlabel("Total Square Footage (sq ft)")
-                    ax.set_ylabel("SalePrice")
-                    ax.spines[["top", "right"]].set_visible(False)
-                    ax.legend(loc="upper left", fontsize=9, frameon=False)
-                    st.pyplot(fig)
-                    plt.close(fig)
+        with st.container(border=True):
+            st.subheader("Where this estimate falls")
+            st.caption("Historical Ames sales by total square footage, with this estimate marked.")
+            df_total_sf = df["TotalBsmtSF"] + df["1stFlrSF"] + df["2ndFlrSF"]
+            fig, ax = plt.subplots(figsize=(7, 4.2))
+            ax.scatter(df_total_sf, df["SalePrice"], alpha=0.35, color=COLORS["accent"], label="Historical sales")
+            ax.scatter([shown_sf], [price], s=140, color=COLORS["highlight"], edgecolor=COLORS["white"], linewidth=1.5, zorder=5, label="This estimate")
+            ax.axhline(price, color=COLORS["highlight"], linestyle="--", linewidth=1, alpha=0.6)
+            ax.axvline(shown_sf, color=COLORS["highlight"], linestyle="--", linewidth=1, alpha=0.6)
+            ax.set_xlabel("Total square footage (sq ft)")
+            ax.set_ylabel("Sale price")
+            ax.spines[["top", "right"]].set_visible(False)
+            ax.legend(loc="upper left", fontsize=9, frameon=False)
+            fig.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
 
-                with st.container(border=True):
-                    st.metric("Estimated Price", f"${price:,.0f}", help=f"{model_name} on {total_sf:,} sq ft · {neighborhood}")
-        else:
-            note("Select specifications and click Predict Price.")
+        with st.container(border=True):
+            st.subheader("What this model relies on")
+            st.caption(
+                "Model-wide feature importance measured across the whole training set \u2014 "
+                "it is not an explanation of this particular house."
+            )
+            importances = st.session_state.models[prediction["model"]]["importances"]
+            if not importances:
+                st.caption("This model was trained before importances were recorded. Retrain it to see them.")
+            else:
+                labels = list(importances.keys())[::-1]
+                values = list(importances.values())[::-1]
+                fig_imp, ax_imp = plt.subplots(figsize=(7, 3.6))
+                ax_imp.barh(labels, values, color=COLORS["accent"])
+                ax_imp.set_xlabel("Increase in RMSE when the feature is shuffled")
+                ax_imp.spines[["top", "right"]].set_visible(False)
+                fig_imp.tight_layout()
+                st.pyplot(fig_imp)
+                plt.close(fig_imp)
 
 
 def _prep_frame() -> pd.DataFrame | None:
@@ -654,6 +822,7 @@ def _prep_frame() -> pd.DataFrame | None:
         st.session_state.prep_df = df.copy()
         st.session_state.prep_source = st.session_state.dataset_id
         st.session_state.prep_history = []
+        st.session_state.prep_saved_at = 0
         st.session_state.pop("prep_shown", None)
     return st.session_state.prep_df
 
@@ -727,76 +896,190 @@ def _dataset_picker() -> None:
         open_clicked = st.button("Open", key="prep_open", use_container_width=True)
 
     if open_clicked:
-        ds = labels[picked]
-        try:
-            models = api_client.list_models(st.session_state.token, ds["id"])
-        except api_client.ApiError:
-            models = []
-        _select_dataset(ds, models, goto="Prepare")
+        if _prep_unsaved() and st.session_state.prep_source is not None:
+            st.session_state.prep_pending_switch = picked
+            st.rerun()
+        _open_picked(labels[picked])
+
+    pending = st.session_state.get("prep_pending_switch")
+    if pending and pending in labels:
+        st.warning(
+            f"{len(st.session_state.prep_history)} unsaved change(s) on "
+            f"\u201c{st.session_state.dataset_name}\u201d will be lost if you switch now."
+        )
+        go_col, stay_col = st.columns(2)
+        with go_col:
+            if st.button("Switch anyway", key="prep-switch-yes", use_container_width=True):
+                st.session_state.prep_pending_switch = None
+                _open_picked(labels[pending])
+        with stay_col:
+            if st.button("Stay here", key="prep-switch-no", type="tertiary", use_container_width=True):
+                st.session_state.prep_pending_switch = None
+                st.rerun()
+
+
+def _open_picked(ds: dict) -> None:
+    try:
+        models = api_client.list_models(st.session_state.token, ds["id"])
+    except api_client.ApiError:
+        models = []
+    _select_dataset(ds, models, goto="Prepare")
+
+
+def _prep_unsaved() -> bool:
+    return len(st.session_state.prep_history) != st.session_state.prep_saved_at
+
+
+def _reset_prep_frame() -> None:
+    st.session_state.prep_df = None
+    st.session_state.prep_history = []
+    st.session_state.prep_saved_at = 0
+    for key in PREP_WIDGET_KEYS:
+        st.session_state.pop(key, None)
+    st.rerun()
+
+
+def _column_selector(all_columns: list[str]) -> list[str]:
+    if len(all_columns) <= 15:
+        return list(
+            st.pills(
+                "Columns in view",
+                all_columns,
+                selection_mode="multi",
+                default=all_columns,
+                key="prep_shown",
+            )
+        )
+    with st.expander(f"Columns in view \u2014 {len(st.session_state.get('prep_shown', all_columns))} of {len(all_columns)}"):
+        st.caption("Type to search. Removing a column here only hides it; the data is untouched until you delete it.")
+        return list(
+            st.multiselect(
+                "Columns in view",
+                all_columns,
+                default=all_columns,
+                key="prep_shown",
+                label_visibility="collapsed",
+            )
+        )
 
 
 def render_prepare():
-    crumb("Prepare data")
-    st.title("Prepare data")
-    st.html("<p class='subtitle'>Upload anything, trim it, inspect it, plot it, then save it as a new dataset</p>")
+    page_header(
+        "Prepare data",
+        "Prepare data",
+        "Open or upload any CSV, clean it, then save the result as a new dataset.",
+    )
 
-    with st.expander("Your datasets", expanded=st.session_state.dataset_id is None):
+    with st.expander("Open a saved dataset", expanded=st.session_state.dataset_id is None):
         _dataset_picker()
 
     with st.expander("Upload a dataset", expanded=st.session_state.dataset_id is None):
         upload_panel("prep-upload", default_target="")
-        if st.session_state.dataset_summary is not None and st.session_state.dataset_id is not None:
-            badge(
-                f"{st.session_state.dataset_name} \u00b7 "
-                f"{st.session_state.dataset_summary['n_rows']:,} rows \u00d7 "
-                f"{st.session_state.dataset_summary['n_columns']} columns"
-            )
 
     prep = _prep_frame()
     if prep is None:
         return
 
     all_columns = list(prep.columns)
+    unsaved = _prep_unsaved()
+    bar_col, save_col = st.columns([5, 1])
+    with bar_col:
+        changes = len(st.session_state.prep_history)
+        state = f"{changes} change{'s' if changes != 1 else ''} not saved yet" if unsaved else "no unsaved changes"
+        context_bar(
+            st.session_state.dataset_name,
+            f"{len(prep):,} rows \u00b7 {len(all_columns)} columns \u00b7 {state}",
+            stale=unsaved,
+        )
+    with save_col:
+        spacer(24)
+        st.html("<a class='jump-link' href='#save'>Go to save \u2193</a>")
+
+    if st.session_state.prep_saved_as:
+        saved = st.session_state.prep_saved_as
+        done_col, open_col = st.columns([4, 1])
+        with done_col:
+            badge(f"Saved \u201c{saved['name']}\u201d \u2014 {saved['n_rows']:,} rows \u00d7 {saved['n_columns']} columns. "
+                  f"\u201c{st.session_state.dataset_name}\u201d stays open here.")
+        with open_col:
+            if st.button("Open saved dataset", key="prep-open-saved", use_container_width=True):
+                try:
+                    ds = next(
+                        d for d in api_client.list_datasets(st.session_state.token)
+                        if d["id"] == saved["id"]
+                    )
+                except (api_client.ApiError, StopIteration):
+                    st.error("Couldn't open it \u2014 find it on the Datasets page.")
+                else:
+                    st.session_state.prep_saved_as = None
+                    _select_dataset(ds, [], goto="Prepare")
+
+    with st.container(border=True):
+        st.subheader("Data")
+        preview_tab, info_tab, describe_tab, missing_tab = st.tabs(
+            ["Preview", "Column information", "Summary statistics", "Missing values"]
+        )
+        shown = st.session_state.get("prep_shown") or all_columns
+        shown = [c for c in shown if c in all_columns] or all_columns
+        with preview_tab:
+            rows = st.slider("Rows to show", 5, 100, 25, key="prep_head_n")
+            st.dataframe(prep[shown].head(rows), use_container_width=True, height=360)
+            st.caption(f"{len(prep):,} rows total \u00b7 showing {min(rows, len(prep))} of them, {len(shown)} of {len(all_columns)} columns")
+        with info_tab:
+            buffer = io.StringIO()
+            prep[shown].info(buf=buffer)
+            st.code(buffer.getvalue(), language="text")
+        with describe_tab:
+            numeric_only = st.toggle("Numeric columns only", value=True, key="prep_desc_numeric")
+            described = prep[shown].describe() if numeric_only else prep[shown].describe(include="all")
+            st.dataframe(described.T, use_container_width=True)
+        with missing_tab:
+            miss = missingness_summary(prep[shown])
+            if miss.empty:
+                st.caption("No missing values.")
+            else:
+                st.dataframe(miss.rename("% missing"), use_container_width=True)
 
     with st.container(border=True):
         st.subheader("Columns")
-        st.caption("Click a chip to hide that column. Dropping removes it from the data you save.")
-        shown = st.pills(
-            "Columns in view",
-            all_columns,
-            selection_mode="multi",
-            default=all_columns,
-            key="prep_shown",
-        )
+        hint("Hiding a column only changes what you see here. Deleting removes it from the data you save.")
+        shown = _column_selector(all_columns)
         hidden = [c for c in all_columns if c not in shown]
 
         drop_col, undo_col, reset_col = st.columns(3)
         with drop_col:
             if st.button(
-                f"Drop {len(hidden)} hidden column{'s' if len(hidden) != 1 else ''}",
+                f"Delete {len(hidden)} hidden column{'s' if len(hidden) != 1 else ''} from the data",
                 disabled=not hidden,
                 use_container_width=True,
             ):
-                _apply_op(lambda frame, cols: frame.drop(columns=cols), prep, hidden, label=f"dropped {len(hidden)} column{'s' if len(hidden) != 1 else ''}")
+                _apply_op(
+                    lambda frame, cols: frame.drop(columns=cols), prep, hidden,
+                    label=f"deleted {len(hidden)} column{'s' if len(hidden) != 1 else ''}",
+                )
         with undo_col:
             history = st.session_state.prep_history
             undo_label = f"Undo \u2014 {history[-1][0]}" if history else "Nothing to undo"
             if st.button(undo_label, disabled=not history, use_container_width=True):
                 _undo_op()
         with reset_col:
-            if st.button("Reset to uploaded data", use_container_width=True):
-                st.session_state.prep_df = None
-                st.session_state.prep_history = []
-                for key in PREP_WIDGET_KEYS:
-                    st.session_state.pop(key, None)
-                st.rerun()
+            if st.session_state.get("prep_confirm_reset"):
+                if st.button("Confirm reset \u2014 lose changes", key="prep-reset-yes", use_container_width=True):
+                    st.session_state.prep_confirm_reset = False
+                    _reset_prep_frame()
+                if st.button("Cancel", key="prep-reset-no", type="tertiary", use_container_width=True):
+                    st.session_state.prep_confirm_reset = False
+                    st.rerun()
+            elif st.button("Reset to uploaded data", use_container_width=True):
+                if unsaved:
+                    st.session_state.prep_confirm_reset = True
+                    st.rerun()
+                else:
+                    _reset_prep_frame()
 
-        st.caption(f"{len(prep):,} rows \u00b7 {len(all_columns)} columns kept \u00b7 {len(shown)} shown")
-        st.dataframe(prep[shown], use_container_width=True, height=360)
-
-    if not shown:
-        note("Tick at least one column to inspect or plot it.")
-        return
+        if not shown:
+            note("Show at least one column to inspect or plot it.")
+            return
 
     with st.container(border=True):
         st.subheader("Transform")
@@ -864,39 +1147,17 @@ def render_prepare():
             if st.button("Apply renames", key="prep_rename_go"):
                 _apply_op(prep_ops.rename_columns, prep, dict(zip(edited["column"], edited["rename to"])), label="renamed columns")
 
-            order = st.multiselect(
-                "Column order",
-                all_columns,
-                default=all_columns,
-                key="prep_order",
-                help="Clear it and re-pick the columns in the order you want.",
+            order = list(
+                st.multiselect(
+                    "Column order",
+                    all_columns,
+                    default=all_columns,
+                    key="prep_order",
+                    help="Clear it and re-pick the columns in the order you want.",
+                )
             )
-            order = list(order)
             if st.button("Apply order", key="prep_order_go", disabled=order == all_columns):
                 _apply_op(prep_ops.reorder_columns, prep, order, label="reordered columns")
-
-    with st.container(border=True):
-        st.subheader("Inspect")
-        head_tab, info_tab, describe_tab, missing_tab = st.tabs(
-            ["head()", "info()", "describe()", "Missing values"]
-        )
-        with head_tab:
-            n = st.slider("Rows", 1, 50, 5, key="prep_head_n")
-            st.dataframe(prep[shown].head(n), use_container_width=True)
-        with info_tab:
-            buffer = io.StringIO()
-            prep[shown].info(buf=buffer)
-            st.code(buffer.getvalue(), language="text")
-        with describe_tab:
-            numeric_only = st.toggle("Numeric columns only", value=True, key="prep_desc_numeric")
-            described = prep[shown].describe() if numeric_only else prep[shown].describe(include="all")
-            st.dataframe(described.T, use_container_width=True)
-        with missing_tab:
-            miss = missingness_summary(prep[shown])
-            if miss.empty:
-                st.caption("No missing values.")
-            else:
-                st.dataframe(miss.rename("% missing"), use_container_width=True)
 
     with st.container(border=True):
         st.subheader("Plot")
@@ -923,10 +1184,11 @@ def render_prepare():
                 st.pyplot(fig)
                 plt.close(fig)
         else:
-            note("Pick an X or Y column to draw a plot.")
+            hint("Pick an X or Y column to draw a plot.")
 
     with st.container(border=True):
         st.subheader("Save")
+        hint("Saving never overwrites the open dataset \u2014 it creates a new one.")
         no_target = "\u2014 none yet \u2014"
         target_options = [no_target, *all_columns]
         default_target = st.session_state.target_column if st.session_state.target_column in all_columns else no_target
@@ -961,11 +1223,14 @@ def render_prepare():
                 except api_client.ApiError as e:
                     st.error(f"Couldn't save that dataset: {e}")
                 else:
-                    badge(
-                        f"Saved as \u201c{new_name.strip()}\u201d \u2014 "
-                        f"{saved['n_rows']:,} rows \u00d7 {len(prep.columns)} columns",
-                        large=True,
-                    )
+                    st.session_state.prep_saved_at = len(st.session_state.prep_history)
+                    st.session_state.prep_saved_as = {
+                        "id": saved["id"],
+                        "name": new_name.strip(),
+                        "n_rows": saved["n_rows"],
+                        "n_columns": len(prep.columns),
+                    }
+                    st.rerun()
 
 
 ROUTES = {
