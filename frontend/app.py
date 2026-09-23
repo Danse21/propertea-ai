@@ -18,8 +18,8 @@ from eda_service import (
     validate_data,
 )
 from styles import CSS
-from theme import COLORS
-from ui import badge, crumb, sidebar_brand, spacer
+from theme import COLORS, HEATMAP_CMAP
+from ui import badge, crumb, note, sidebar_brand, spacer
 
 st.set_page_config(page_title="propertea-ai", page_icon="\U0001F3E0", layout="wide")
 st.html(CSS)
@@ -178,7 +178,7 @@ def render_datasets():
             return
 
         if not datasets:
-            st.info("Nothing here yet. Upload a CSV to get started.")
+            note("Nothing here yet. Upload a CSV to get started.")
             if st.button("Go to Upload \u2192", type="primary", use_container_width=True):
                 st.session_state.page = "Upload"
                 st.rerun()
@@ -335,11 +335,11 @@ def render_eda():
         st.subheader("Target distribution")
         log_price = np.log1p(df["SalePrice"])
         fig, axes = plt.subplots(1, 2, figsize=(10, 3.2))
-        axes[0].hist(df["SalePrice"] / 1000, bins=40, color=COLORS["teal-600"])
+        axes[0].hist(df["SalePrice"] / 1000, bins=40, color=COLORS["accent"])
         axes[0].set_title(f"SalePrice (skew {df['SalePrice'].skew():.2f})", fontsize=10)
         axes[0].set_xlabel("SalePrice ($1000x)")
         axes[0].set_ylabel("Count")
-        axes[1].hist(log_price, bins=40, color=COLORS["teal-600"])
+        axes[1].hist(log_price, bins=40, color=COLORS["accent"])
         axes[1].set_title(f"log1p(SalePrice) (skew {log_price.skew():.2f})", fontsize=10)
         axes[1].set_xlabel("log1p(SalePrice)")
         axes[1].set_ylabel("Count")
@@ -356,7 +356,7 @@ def render_eda():
         miss_subset = miss.loc[cols_to_show].sort_values()
         if len(miss_subset):
             bar_colors = [
-                COLORS["teal-600"] if col in NA_IS_CATEGORY else COLORS["red-600"]
+                COLORS["accent"] if col in NA_IS_CATEGORY else COLORS["danger"]
                 for col in miss_subset.index
             ]
             fig2, ax2 = plt.subplots(figsize=(9, 3.2))
@@ -364,8 +364,8 @@ def render_eda():
             ax2.set_xlabel("% missing")
             ax2.spines[["top", "right"]].set_visible(False)
             legend_handles = [
-                Patch(facecolor=COLORS["red-600"], label="Genuinely missing"),
-                Patch(facecolor=COLORS["teal-600"], label="NA means \"none\""),
+                Patch(facecolor=COLORS["danger"], label="Genuinely missing"),
+                Patch(facecolor=COLORS["accent"], label="NA means \"none\""),
             ]
             ax2.legend(handles=legend_handles, loc="lower right", fontsize=8, frameon=False)
             st.pyplot(fig2)
@@ -377,7 +377,7 @@ def render_eda():
         st.subheader("Correlation heatmap — top SalePrice movers")
         corr = _cached_top_mover_correlations(df)
         fig3, ax3 = plt.subplots(figsize=(5, 4))
-        im = ax3.imshow(corr, cmap="BuGn", vmin=0, vmax=1)
+        im = ax3.imshow(corr, cmap=HEATMAP_CMAP, vmin=0, vmax=1)
         ax3.set_xticks(range(len(corr.columns)))
         ax3.set_xticklabels(
             [abbr for abbr, raw, _ in CORR_LEGEND if raw in corr.columns], rotation=45, ha="right", fontsize=8
@@ -388,7 +388,7 @@ def render_eda():
             for j in range(len(corr.columns)):
                 ax3.text(
                     j, i, f"{corr.iloc[i, j]:.2f}", ha="center", va="center", fontsize=7,
-                    color=COLORS["white"] if corr.iloc[i, j] > 0.6 else COLORS["gray-900"],
+                    color=COLORS["white"] if corr.iloc[i, j] > 0.6 else COLORS["ink"],
                 )
         fig3.colorbar(im, ax=ax3, fraction=0.046, pad=0.04)
         st.pyplot(fig3, width="content")
@@ -533,7 +533,7 @@ def render_predict():
                         labels = list(importances.keys())[::-1]
                         values = list(importances.values())[::-1]
                         fig_imp, ax_imp = plt.subplots(figsize=(7, 4))
-                        ax_imp.barh(labels, values, color=COLORS["teal-600"])
+                        ax_imp.barh(labels, values, color=COLORS["accent"])
                         ax_imp.set_xlabel("Importance (increase in RMSE when shuffled)")
                         ax_imp.spines[["top", "right"]].set_visible(False)
                         st.pyplot(fig_imp)
@@ -542,10 +542,10 @@ def render_predict():
                 with st.container(border=True):
                     st.subheader("Where this prediction falls")
                     fig, ax = plt.subplots(figsize=(7, 5))
-                    ax.scatter(df["GrLivArea"], df["SalePrice"], alpha=0.35, color=COLORS["teal-600"], label="Training houses")
-                    ax.scatter([gr_liv_area], [price], s=140, color=COLORS["orange-500"], edgecolor=COLORS["white"], linewidth=1.5, zorder=5, label="Your prediction")
-                    ax.axhline(price, color=COLORS["orange-500"], linestyle="--", linewidth=1, alpha=0.6)
-                    ax.axvline(gr_liv_area, color=COLORS["orange-500"], linestyle="--", linewidth=1, alpha=0.6)
+                    ax.scatter(df["GrLivArea"], df["SalePrice"], alpha=0.35, color=COLORS["accent"], label="Training houses")
+                    ax.scatter([gr_liv_area], [price], s=140, color=COLORS["highlight"], edgecolor=COLORS["white"], linewidth=1.5, zorder=5, label="Your prediction")
+                    ax.axhline(price, color=COLORS["highlight"], linestyle="--", linewidth=1, alpha=0.6)
+                    ax.axvline(gr_liv_area, color=COLORS["highlight"], linestyle="--", linewidth=1, alpha=0.6)
                     ax.set_xlabel("Above Grade Living Area (sq ft)")
                     ax.set_ylabel("SalePrice")
                     ax.spines[["top", "right"]].set_visible(False)
@@ -556,7 +556,7 @@ def render_predict():
                 with st.container(border=True):
                     st.metric("Estimated Price", f"${price:,.0f}", help=f"{model_name} on {gr_liv_area:,} sq ft · {neighborhood}")
         else:
-            st.info("Select specifications and click Predict Price.")
+            note("Select specifications and click Predict Price.")
 
 
 ROUTES = {

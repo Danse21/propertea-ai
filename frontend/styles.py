@@ -17,76 +17,76 @@ CSS = """
     --color-white: #FFFFFF;
     --color-black: #000000;
 
-    --color-gray-50: #fafafa;
-    --color-gray-100: #E1E7EB;
-    --color-gray-200: #E5E7EB;
-    --color-gray-300: #D1D5DB;
-    --color-gray-400: #9CA3AF;
-    --color-gray-500: #94A3B8;
-    --color-gray-600: #6B7280;
-    --color-gray-700: #5B6B7A;
-    --color-gray-750: #333333;
-    --color-gray-800: #1F2937;
-    --color-gray-900: #14202B;
+    --color-clay-50: #FBF8F1;
+    --color-clay-100: #EDE4D2;
+    --color-clay-200: #E8DEC9;
+    --color-clay-300: #D8CBB2;
+    --color-clay-400: #BCAC8E;
+    --color-clay-500: #9C8C6E;
+    --color-clay-600: #786A51;
+    --color-clay-700: #554A3C;
+    --color-clay-750: #43392D;
+    --color-clay-800: #362E24;
+    --color-clay-900: #2A241C;
 
-    --color-slate-400: #93A1AC;
-    --color-slate-500: #7C8B98;
-    --color-slate-600: #5A6976;
+    --color-sand-400: #A8997C;
+    --color-sand-500: #8C7B5E;
+    --color-sand-600: #6F6250;
 
-    --color-teal-100: #E3F3F3;
-    --color-teal-500: #2d898b;
-    --color-teal-600: #0E7C86;
-    --color-teal-700: #0B5E66;
-    --color-teal-900: #206567;
+    --color-matcha-100: #E7EFD9;
+    --color-matcha-500: #6E8F45;
+    --color-matcha-600: #5F7F3A;
+    --color-matcha-700: #4C6A2E;
+    --color-matcha-900: #3C5424;
 
-    --color-navy-750: #223140;
-    --color-navy-800: #223448;
-    --color-navy-900: #101A24;
+    --color-brew-750: #4A3726;
+    --color-brew-800: #3A2B1D;
+    --color-brew-900: #241A11;
 
-    --color-sky-50: #EAF2FA;
-    --color-sky-300: #93A3B0;
+    --color-cream-50: #FBF3E4;
+    --color-cream-300: #C3A87A;
 
-    --color-red-600: #DC2626;
-    --color-red-700: #a40606;
-    --color-orange-500: #E8623D;
+    --color-rooibos-600: #C0472B;
+    --color-rooibos-700: #96301C;
+    --color-amber-500: #C2761F;
 
     /* Semantic tokens ("surface keys") */
-    --bg: var(--color-gray-50);
+    --bg: var(--color-clay-50);
     --surface: var(--color-white);
-    --ink: var(--color-gray-900);
-    --ink-soft: var(--color-gray-700);
-    --ink-faint: var(--color-slate-400);
-    --border: var(--color-gray-100);
-    --accent: var(--color-teal-600);
-    --accent-soft: var(--color-teal-100);
-    --accent-dark: var(--color-teal-700);
-    --highlight: var(--color-orange-500);
-    --danger: var(--color-red-700);
+    --ink: var(--color-clay-900);
+    --ink-soft: var(--color-clay-700);
+    --ink-faint: var(--color-sand-400);
+    --border: var(--color-clay-100);
+    --accent: var(--color-matcha-600);
+    --accent-soft: var(--color-matcha-100);
+    --accent-dark: var(--color-matcha-700);
+    --highlight: var(--color-amber-500);
+    --danger: var(--color-rooibos-700);
     --danger-soft: color-mix(in srgb, var(--danger) 6%, transparent);
 
     --text-black: var(--color-black);
-    --text-strong: var(--color-gray-800);
-    --text-subtitle: var(--color-gray-750);
+    --text-strong: var(--color-clay-800);
+    --text-subtitle: var(--color-clay-750);
     --text-on-accent: var(--color-white);
 
-    --sidebar-bg: var(--color-navy-900);
-    --sidebar-ink: var(--color-sky-50);
-    --sidebar-ink-soft: var(--color-sky-300);
-    --sidebar-button-bg: var(--color-teal-500);
-    --sidebar-button-hover-bg: var(--color-navy-800);
-    --sidebar-divider: var(--color-navy-750);
+    --sidebar-bg: var(--color-brew-900);
+    --sidebar-ink: var(--color-cream-50);
+    --sidebar-ink-soft: var(--color-cream-300);
+    --sidebar-button-bg: var(--color-matcha-600);
+    --sidebar-button-hover-bg: var(--color-brew-800);
+    --sidebar-divider: var(--color-brew-750);
 
-    --secondary-button-bg: var(--color-teal-900);
+    --secondary-button-bg: var(--color-matcha-900);
 
-    --input-border: var(--color-gray-500);
-    --input-muted-ink: var(--color-gray-600);
+    --input-border: var(--color-clay-500);
+    --input-muted-ink: var(--color-clay-600);
 
-    --uploader-button-bg: var(--color-gray-200);
-    --uploader-button-border: var(--color-gray-300);
-    --uploader-button-hover-border: var(--color-gray-400);
+    --uploader-button-bg: var(--color-clay-200);
+    --uploader-button-border: var(--color-clay-300);
+    --uploader-button-hover-border: var(--color-clay-400);
 
-    --session-badge-ink: var(--color-slate-500);
-    --session-badge-label-ink: var(--color-slate-600);
+    --session-badge-ink: var(--color-sand-500);
+    --session-badge-label-ink: var(--color-sand-600);
 
     --space-1: 2px;
     --space-2: 4px;
@@ -149,12 +149,21 @@ html, body, [class*="css"] {
     border-bottom: 1px solid var(--sidebar-divider);
     margin-bottom: var(--space-5);
 }
+.note {
+    background: var(--accent-soft);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: var(--space-6) var(--space-8);
+    color: var(--ink-soft);
+    font-size: 14px;
+}
 .auth-brand {
     font-weight: 800;
     font-size: 22px;
     color: var(--text-strong);
     padding-bottom: var(--space-8);
-    border-bottom: 1px solid var(--color-gray-200);
+    border-bottom: 1px solid var(--color-clay-200);
     margin-bottom: var(--space-5);
 }
 [data-testid="stSidebar"] .stButton button {

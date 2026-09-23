@@ -14,6 +14,10 @@ def badge(text: str, *, large: bool = False) -> None:
     st.html(f"<div class='status-badge{size_class}'><span class='dot'></span>{text}</div>")
 
 
+def note(text: str) -> None:
+    st.html(f"<div class='note'>{text}</div>")
+
+
 def crumb(label: str) -> None:
     """The small breadcrumb line under the top nav on each page."""
     st.html(f"<div class='crumb'>PROPERTEA-AI / {label.upper()}</div>")

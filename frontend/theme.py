@@ -2,9 +2,10 @@
 
 COLORS = {
     "white": "#FFFFFF",
-    "black": "#000000",
-    "gray-900": "#14202B",
-    "teal-600": "#0E7C86",
-    "orange-500": "#E8623D",
-    "red-600": "#DC2626",
+    "ink": "#2A241C",
+    "accent": "#5F7F3A",
+    "highlight": "#C2761F",
+    "danger": "#C0472B",
 }
+
+HEATMAP_CMAP = "YlGn"
