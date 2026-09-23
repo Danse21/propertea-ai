@@ -8,6 +8,7 @@ import streamlit as st
 from matplotlib.patches import Patch
 
 import api_client
+import prep_ops
 from eda_service import (
     CORR_LEGEND,
     HEATMAP,
@@ -218,8 +219,9 @@ def render_datasets():
                 with header:
                     st.subheader(ds["name"])
                     source = "fetched from URL" if ds["source_url"] else "uploaded"
+                    target = ds["target_column"] or "not set"
                     st.caption(
-                        f"{ds['n_rows']:,} rows \u00b7 target {ds['target_column']} \u00b7 "
+                        f"{ds['n_rows']:,} rows \u00b7 target {target} \u00b7 "
                         f"{source} \u00b7 {_pretty_date(ds['created_at'])}"
                     )
 
@@ -639,6 +641,26 @@ def _prep_frame() -> pd.DataFrame | None:
     return st.session_state.prep_df
 
 
+PREP_WIDGET_KEYS = (
+    "prep_shown", "prep_order", "prep_rename_editor",
+    "prep_plot_x", "prep_plot_y", "prep_plot_hue",
+    "prep_impute_col", "prep_cast_col",
+)
+
+
+def _apply_op(op, frame: pd.DataFrame, *args) -> None:
+    try:
+        result = op(frame, *args)
+    except ValueError as e:
+        st.error(str(e))
+        return
+    st.session_state.prep_df = result
+    if list(result.columns) != list(frame.columns):
+        for key in PREP_WIDGET_KEYS:
+            st.session_state.pop(key, None)
+    st.rerun()
+
+
 def render_prepare():
     crumb("Prepare data")
     st.title("Prepare data")
@@ -663,13 +685,12 @@ def render_prepare():
                 disabled=not hidden,
                 use_container_width=True,
             ):
-                st.session_state.prep_df = prep.drop(columns=hidden)
-                st.session_state.pop("prep_shown", None)
-                st.rerun()
+                _apply_op(lambda frame, cols: frame.drop(columns=cols), prep, hidden)
         with reset_col:
             if st.button("Reset to uploaded data", use_container_width=True):
                 st.session_state.prep_df = None
-                st.session_state.pop("prep_shown", None)
+                for key in PREP_WIDGET_KEYS:
+                    st.session_state.pop(key, None)
                 st.rerun()
 
         st.caption(f"{len(prep):,} rows \u00b7 {len(all_columns)} columns kept \u00b7 {len(shown)} shown")
@@ -678,6 +699,82 @@ def render_prepare():
     if not shown:
         note("Tick at least one column to inspect or plot it.")
         return
+
+    with st.container(border=True):
+        st.subheader("Transform")
+        impute_tab, cast_tab, rows_tab, columns_tab = st.tabs(
+            ["Fill missing", "Change type", "Rows", "Rename & order"]
+        )
+
+        with impute_tab:
+            col, strategy, value = st.columns([2, 2, 2])
+            with col:
+                impute_column = st.selectbox("Column", all_columns, key="prep_impute_col")
+            with strategy:
+                impute_strategy = st.selectbox("Fill with", prep_ops.FILL_STRATEGIES, key="prep_impute_how")
+            with value:
+                impute_constant = st.text_input(
+                    "Value", key="prep_impute_value", disabled=impute_strategy != "constant"
+                )
+            st.caption(f"{prep[impute_column].isna().sum():,} missing values in {impute_column}")
+            if st.button("Apply fill", key="prep_impute_go"):
+                _apply_op(prep_ops.impute, prep, impute_column, impute_strategy, impute_constant)
+
+        with cast_tab:
+            col, dtype = st.columns(2)
+            with col:
+                cast_column = st.selectbox("Column", all_columns, key="prep_cast_col")
+            with dtype:
+                cast_dtype = st.selectbox("Cast to", list(prep_ops.CASTS), key="prep_cast_dtype")
+            st.caption(f"{cast_column} is currently {prep[cast_column].dtype}")
+            if st.button("Apply cast", key="prep_cast_go"):
+                _apply_op(prep_ops.cast, prep, cast_column, cast_dtype)
+
+        with rows_tab:
+            expression = st.text_input(
+                "Keep rows where",
+                key="prep_filter_expr",
+                placeholder="SalePrice > 100000 and OverallQual >= 5",
+                help="A pandas query expression. Wrap odd column names in backticks.",
+            )
+            if st.button("Apply filter", key="prep_filter_go", disabled=not expression.strip()):
+                _apply_op(prep_ops.filter_rows, prep, expression)
+
+            threshold = st.slider("Drop rows missing more than (% of columns)", 0, 100, 50, key="prep_sparse_pct")
+            sparse_col, dedupe_col = st.columns(2)
+            with sparse_col:
+                if st.button("Drop sparse rows", key="prep_sparse_go", use_container_width=True):
+                    _apply_op(prep_ops.drop_sparse_rows, prep, float(threshold))
+            with dedupe_col:
+                duplicates = int(prep.duplicated().sum())
+                if st.button(
+                    f"Drop {duplicates:,} duplicate rows",
+                    key="prep_dedupe_go",
+                    disabled=not duplicates,
+                    use_container_width=True,
+                ):
+                    _apply_op(prep_ops.deduplicate, prep)
+
+        with columns_tab:
+            edited = st.data_editor(
+                pd.DataFrame({"column": all_columns, "rename to": all_columns}),
+                hide_index=True,
+                disabled=["column"],
+                use_container_width=True,
+                key="prep_rename_editor",
+            )
+            if st.button("Apply renames", key="prep_rename_go"):
+                _apply_op(prep_ops.rename_columns, prep, dict(zip(edited["column"], edited["rename to"])))
+
+            order = st.multiselect(
+                "Column order",
+                all_columns,
+                default=all_columns,
+                key="prep_order",
+                help="Clear it and re-pick the columns in the order you want.",
+            )
+            if st.button("Apply order", key="prep_order_go", disabled=order == all_columns):
+                _apply_op(prep_ops.reorder_columns, prep, order)
 
     with st.container(border=True):
         st.subheader("Inspect")
@@ -731,11 +828,20 @@ def render_prepare():
 
     with st.container(border=True):
         st.subheader("Save")
-        target = TARGET_COLUMN if TARGET_COLUMN in prep.columns else all_columns[0]
-        st.caption(f"Saved as a new dataset with target column {target}.")
-        name_col, button_col = st.columns([3, 1])
+        no_target = "\u2014 none yet \u2014"
+        target_options = [no_target, *all_columns]
+        default_target = st.session_state.target_column if st.session_state.target_column in all_columns else no_target
+        name_col, target_col, button_col = st.columns([2, 2, 1])
         with name_col:
             new_name = st.text_input("Save as", value=f"{st.session_state.dataset_name}-prepared")
+        with target_col:
+            target = st.selectbox(
+                "Target column",
+                target_options,
+                index=target_options.index(default_target),
+                help="The column you want to predict. Leave it unset if you haven't decided.",
+            )
+            target = None if target == no_target else target
         with button_col:
             spacer(35)
             save_clicked = st.button("Save dataset", type="primary", use_container_width=True)
