@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -37,7 +39,7 @@ if "dataset_name" not in st.session_state:
 if "models" not in st.session_state:
     st.session_state.models = {}
 if "page" not in st.session_state:
-    st.session_state.page = "Upload"
+    st.session_state.page = "Datasets"
 
 _cached_get_full_dataset = st.cache_data(api_client.get_full_dataset)
 _cached_list_algorithms = st.cache_data(api_client.list_algorithms)
@@ -78,7 +80,7 @@ def _sign_out():
     st.session_state.dataset_summary = None
     st.session_state._uploaded_file_id = None
     st.session_state.models = {}
-    st.session_state.page = "Upload"
+    st.session_state.page = "Datasets"
     _cached_get_full_dataset.clear()
     st.rerun()
 
@@ -127,6 +129,108 @@ def render_auth():
                         st.error("Password must be at least 8 characters.")
                     else:
                         _sign_in(lambda: api_client.register(new_username, new_password))
+
+
+def _pretty_date(iso: str) -> str:
+    return datetime.fromisoformat(iso).strftime("%d %b %Y")
+
+
+def _select_dataset(ds: dict, models: list[dict]) -> None:
+    try:
+        preview = api_client.get_dataset(st.session_state.token, ds["id"], limit=1)
+    except api_client.ApiError as e:
+        st.error(f"Couldn't open that dataset: {e}")
+        return
+
+    st.session_state.dataset_id = ds["id"]
+    st.session_state.dataset_name = ds["name"]
+    st.session_state.dataset_summary = {
+        "n_rows": ds["n_rows"],
+        "n_columns": len(preview["columns"]),
+    }
+    st.session_state.models = {
+        m["algo"]: {
+            "model_id": m["id"],
+            "metrics": m["metrics"],
+            "best_params": m["best_params"],
+            "importances": m["importances"],
+        }
+        for m in reversed(models)
+    }
+    st.session_state.page = "Explore"
+    st.rerun()
+
+
+def render_datasets():
+    crumb("Datasets")
+    st.title("Your datasets")
+    st.html("<p class='subtitle'>Pick up where you left off, or start a new upload</p>")
+
+    _left_pad, main_col, _right_pad = st.columns([1, 8, 1])
+    with main_col:
+        try:
+            datasets = api_client.list_datasets(st.session_state.token)
+        except api_client.BackendUnreachableError as e:
+            st.error(f"Can't reach the backend: {e}")
+            return
+        except api_client.ApiError as e:
+            st.error(f"Couldn't load your datasets: {e}")
+            return
+
+        if not datasets:
+            st.info("Nothing here yet. Upload a CSV to get started.")
+            if st.button("Go to Upload \u2192", type="primary", use_container_width=True):
+                st.session_state.page = "Upload"
+                st.rerun()
+            return
+
+        for ds in datasets:
+            try:
+                models = api_client.list_models(st.session_state.token, ds["id"])
+            except api_client.ApiError:
+                models = []
+
+            with st.container(border=True):
+                is_active = ds["id"] == st.session_state.dataset_id
+                header, action = st.columns([3, 1])
+
+                with header:
+                    st.subheader(ds["name"])
+                    source = "fetched from URL" if ds["source_url"] else "uploaded"
+                    st.caption(
+                        f"{ds['n_rows']:,} rows \u00b7 target {ds['target_column']} \u00b7 "
+                        f"{source} \u00b7 {_pretty_date(ds['created_at'])}"
+                    )
+
+                with action:
+                    spacer(24)
+                    label = "Reopen" if is_active else "Continue with this"
+                    if st.button(label, key=f"pick-{ds['id']}", type="primary", use_container_width=True):
+                        _select_dataset(ds, models)
+
+                if is_active:
+                    badge("Currently open")
+
+                if models:
+                    st.caption(f"{len(models)} trained model{'s' if len(models) > 1 else ''}")
+                    st.dataframe(
+                        [
+                            {
+                                "Algorithm": m["algo"],
+                                "RMSE (log)": m["metrics"]["rmse_log"],
+                                "Trained": _pretty_date(m["created_at"]),
+                            }
+                            for m in models
+                        ],
+                        hide_index=True,
+                    )
+                else:
+                    st.caption("No models trained on this dataset yet.")
+
+        spacer(24)
+        if st.button("Upload another dataset", use_container_width=True):
+            st.session_state.page = "Upload"
+            st.rerun()
 
 
 def render_upload():
@@ -423,14 +527,17 @@ def render_predict():
                 with st.container(border=True):
                     st.subheader("Feature importance")
                     importances = st.session_state.models[model_name]["importances"]
-                    labels = list(importances.keys())[::-1]
-                    values = list(importances.values())[::-1]
-                    fig_imp, ax_imp = plt.subplots(figsize=(7, 4))
-                    ax_imp.barh(labels, values, color=COLORS["teal-600"])
-                    ax_imp.set_xlabel("Importance (increase in RMSE when shuffled)")
-                    ax_imp.spines[["top", "right"]].set_visible(False)
-                    st.pyplot(fig_imp)
-                    plt.close(fig_imp)
+                    if not importances:
+                        st.caption("This model was trained before importances were recorded. Retrain it to see them.")
+                    else:
+                        labels = list(importances.keys())[::-1]
+                        values = list(importances.values())[::-1]
+                        fig_imp, ax_imp = plt.subplots(figsize=(7, 4))
+                        ax_imp.barh(labels, values, color=COLORS["teal-600"])
+                        ax_imp.set_xlabel("Importance (increase in RMSE when shuffled)")
+                        ax_imp.spines[["top", "right"]].set_visible(False)
+                        st.pyplot(fig_imp)
+                        plt.close(fig_imp)
 
                 with st.container(border=True):
                     st.subheader("Where this prediction falls")
@@ -453,6 +560,7 @@ def render_predict():
 
 
 ROUTES = {
+    "Datasets": render_datasets,
     "Upload": render_upload,
     "Explore": render_eda,
     "Train": render_train,

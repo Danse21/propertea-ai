@@ -67,6 +67,8 @@ class ModelOut(BaseModel):
     dataset_id: int
     algo: str
     metrics: dict
+    importances: dict[str, float]
+    best_params: dict | None
     created_at: datetime
 
 

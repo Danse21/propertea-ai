@@ -60,6 +60,8 @@ def train(
         dataset_id=dataset_id,
         algo=body.algo,
         metrics=result["metrics"],
+        importances=result["importances"].to_dict(),
+        best_params=result["best_params"],
         artifact=artifact_buf.getvalue(),
     )
     db.add(model)
@@ -69,9 +71,9 @@ def train(
     return TrainResponse(
         model_id=model.id,
         algo=model.algo,
-        metrics=result["metrics"],
-        best_params=result["best_params"],
-        importances=result["importances"].to_dict(),
+        metrics=model.metrics,
+        best_params=model.best_params,
+        importances=model.importances,
     )
 
 

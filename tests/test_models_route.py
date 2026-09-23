@@ -115,6 +115,22 @@ def test_list_models_for_dataset(client, auth):
     assert {m["algo"] for m in body} == {"Linear Regression", "Decision Tree"}
     assert "artifact" not in body[0]
 
+    by_algo = {m["algo"]: m for m in body}
+    assert len(by_algo["Linear Regression"]["importances"]) > 0
+    assert by_algo["Linear Regression"]["best_params"] is None
+    assert by_algo["Decision Tree"]["best_params"]["model__max_depth"] in (4, 6, 8)
+
+
+def test_listed_model_matches_what_training_returned(client, auth):
+    ds_id = _upload_training_dataset(client, auth).json()["id"]
+    trained = _train(client, auth, ds_id, algo="Decision Tree").json()
+
+    listed = client.get(f"/datasets/{ds_id}/models", headers=auth).json()[0]
+    assert listed["id"] == trained["model_id"]
+    assert listed["metrics"] == trained["metrics"]
+    assert listed["importances"] == trained["importances"]
+    assert listed["best_params"] == trained["best_params"]
+
 
 def test_list_models_wrong_user_is_404(client, auth, other_auth):
     ds_id = _upload_training_dataset(client, auth).json()["id"]
