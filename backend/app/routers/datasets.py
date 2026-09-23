@@ -9,7 +9,6 @@ from fastapi import (
     Depends,
     File,
     Form,
-    Header,
     HTTPException,
     Query,
     UploadFile,
@@ -17,8 +16,9 @@ from fastapi import (
 from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 
+from app.auth import CurrentUserDep
 from app.db import get_db
-from app.models import Dataset, DatasetRow
+from app.models import Dataset, DatasetRow, User
 from app.schemas import DatasetCreateFromUrl, DatasetDetail, DatasetOut
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -27,7 +27,13 @@ MAX_BYTES = 10 * 1024 * 1024
 MAX_ROWS = 100_000
 
 DbDep = Annotated[Session, Depends(get_db)]
-SessionIdDep = Annotated[str | None, Header(alias="X-Session-Id")]
+
+
+def get_owned_dataset(db: Session, dataset_id: int, user: User) -> Dataset:
+    ds = db.get(Dataset, dataset_id)
+    if ds is None or ds.owner_id != str(user.id):
+        raise HTTPException(404, "Dataset not found")
+    return ds
 
 
 def parse_csv(raw: bytes, target_column: str) -> pd.DataFrame:
@@ -133,7 +139,7 @@ async def upload_dataset(
     file: Annotated[UploadFile, File()],
     name: Annotated[str, Form(min_length=1, max_length=255)],
     target_column: Annotated[str, Form(min_length=1, max_length=255)],
-    x_session_id: SessionIdDep = None,
+    user: CurrentUserDep,
 ) -> Dataset:
     if file.size is not None and file.size > MAX_BYTES:
         raise HTTPException(
@@ -148,7 +154,7 @@ async def upload_dataset(
         name=name,
         target_column=target_column,
         source_url=None,
-        owner_id=x_session_id,
+        owner_id=str(user.id),
         df=df,
     )
 
@@ -157,7 +163,7 @@ async def upload_dataset(
 async def dataset_from_url(
     db: DbDep,
     body: DatasetCreateFromUrl,
-    x_session_id: SessionIdDep = None,
+    user: CurrentUserDep,
 ) -> Dataset:
     raw = await fetch(str(body.url))
     df = parse_csv(raw, body.target_column)
@@ -166,16 +172,16 @@ async def dataset_from_url(
         name=body.name,
         target_column=body.target_column,
         source_url=str(body.url),
-        owner_id=x_session_id,
+        owner_id=str(user.id),
         df=df,
     )
 
 
 @router.get("", response_model=list[DatasetOut])
-def list_datasets(db: DbDep, x_session_id: SessionIdDep = None) -> list[Dataset]:
+def list_datasets(db: DbDep, user: CurrentUserDep) -> list[Dataset]:
     stmt = (
         select(Dataset)
-        .where(Dataset.owner_id == x_session_id)
+        .where(Dataset.owner_id == str(user.id))
         .order_by(Dataset.created_at.desc())
     )
     return list(db.scalars(stmt))
@@ -185,13 +191,11 @@ def list_datasets(db: DbDep, x_session_id: SessionIdDep = None) -> list[Dataset]
 def get_dataset(
     db: DbDep,
     dataset_id: int,
+    user: CurrentUserDep,
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
-    x_session_id: SessionIdDep = None,
 ) -> DatasetDetail:
-    ds = db.get(Dataset, dataset_id)
-    if ds is None or ds.owner_id != x_session_id:
-        raise HTTPException(404, "Dataset not found")
+    ds = get_owned_dataset(db, dataset_id, user)
 
     base = (
         select(DatasetRow.data)

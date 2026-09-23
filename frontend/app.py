@@ -1,6 +1,3 @@
-
-import uuid
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -25,8 +22,10 @@ from ui import badge, crumb, sidebar_brand, spacer
 st.set_page_config(page_title="propertea-ai", page_icon="\U0001F3E0", layout="wide")
 st.html(CSS)
 
-if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
+if "token" not in st.session_state:
+    st.session_state.token = None
+if "username" not in st.session_state:
+    st.session_state.username = None
 if "dataset_id" not in st.session_state:
     st.session_state.dataset_id = None
 if "dataset_summary" not in st.session_state:
@@ -59,10 +58,75 @@ def sidebar():
             st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown(
-            f"<div class='session-badge'><span class='lbl'>SESSION</span>"
-            f"{st.session_state.session_id[:8]}&hellip;</div>",
+            f"<div class='session-badge'><span class='lbl'>SIGNED IN</span>"
+            f"{st.session_state.username}</div>",
             unsafe_allow_html=True,
         )
+        if st.button("Log out", key="nav-logout", use_container_width=True):
+            _sign_out()
+
+
+def _sign_out():
+    if st.session_state.token:
+        try:
+            api_client.logout(st.session_state.token)
+        except api_client.ApiError:
+            pass
+    st.session_state.token = None
+    st.session_state.username = None
+    st.session_state.dataset_id = None
+    st.session_state.dataset_summary = None
+    st.session_state._uploaded_file_id = None
+    st.session_state.models = {}
+    st.session_state.page = "Upload"
+    _cached_get_full_dataset.clear()
+    st.rerun()
+
+
+def _sign_in(call):
+    try:
+        result = call()
+    except api_client.BackendUnreachableError as e:
+        st.error(f"Can't reach the backend: {e}")
+    except api_client.AuthError as e:
+        st.error(str(e))
+    except api_client.ApiError as e:
+        st.error(f"Couldn't sign you in: {e}")
+    else:
+        st.session_state.token = result["token"]
+        st.session_state.username = result["username"]
+        st.rerun()
+
+
+def render_auth():
+    _left_pad, main_col, _right_pad = st.columns([1, 2, 1])
+    with main_col:
+        st.html("<div class='auth-brand'>\U0001F3E0 propertea-ai</div>")
+        st.html("<p class='subtitle'>Sign in to reach your datasets and trained models</p>")
+
+        login_tab, register_tab = st.tabs(["Log in", "Create account"])
+
+        with login_tab:
+            with st.form("login"):
+                username = st.text_input("Username")
+                password = st.text_input("Password", type="password")
+                if st.form_submit_button("Log in", type="primary", use_container_width=True):
+                    if not username or not password:
+                        st.error("Enter a username and a password.")
+                    else:
+                        _sign_in(lambda: api_client.login(username, password))
+
+        with register_tab:
+            with st.form("register"):
+                new_username = st.text_input("Username", help="At least 3 characters")
+                new_password = st.text_input("Password", type="password", help="At least 8 characters")
+                if st.form_submit_button("Create account", type="primary", use_container_width=True):
+                    if len(new_username) < 3:
+                        st.error("Username must be at least 3 characters.")
+                    elif len(new_password) < 8:
+                        st.error("Password must be at least 8 characters.")
+                    else:
+                        _sign_in(lambda: api_client.register(new_username, new_password))
 
 
 def render_upload():
@@ -79,7 +143,7 @@ def render_upload():
             if uploaded is not None and uploaded.file_id != st.session_state._uploaded_file_id:
                 st.session_state._uploaded_file_id = uploaded.file_id
                 _try_load(lambda: api_client.upload_dataset(
-                    st.session_state.session_id, uploaded, st.session_state.dataset_name, TARGET_COLUMN
+                    st.session_state.token, uploaded, st.session_state.dataset_name, TARGET_COLUMN
                 ))
 
             st.html("<strong><div class='divider'>OR PASTE A URL</div></strong>")
@@ -95,7 +159,7 @@ def render_upload():
                 fetch_clicked = st.button("Fetch dataset", use_container_width=True)
             if fetch_clicked and url:
                 _try_load(lambda: api_client.fetch_dataset_from_url(
-                    st.session_state.session_id, url, st.session_state.dataset_name, TARGET_COLUMN
+                    st.session_state.token, url, st.session_state.dataset_name, TARGET_COLUMN
                 ))
 
             name_col, target_col = st.columns(2)
@@ -129,7 +193,7 @@ def _try_load(persist):
 
     dataset_id = response["id"]
     try:
-        preview = api_client.get_dataset(st.session_state.session_id, dataset_id, limit=1)
+        preview = api_client.get_dataset(st.session_state.token, dataset_id, limit=1)
         validate_data(pd.DataFrame(preview["rows"], columns=preview["columns"]), require_target=True)
     except DataValidationError as e:
         st.error(f"This doesn't look like valid Ames housing data: {e}")
@@ -148,7 +212,7 @@ def _require_dataset() -> pd.DataFrame | None:
         st.warning("Upload a dataset first — see the Upload page.")
         return None
     try:
-        return _cached_get_full_dataset(st.session_state.session_id, st.session_state.dataset_id)
+        return _cached_get_full_dataset(st.session_state.token, st.session_state.dataset_id)
     except api_client.ApiError as e:
         st.error(f"Couldn't load the dataset from the backend: {e}")
         return None
@@ -264,7 +328,7 @@ def render_train():
     if train_clicked:
         with st.spinner("Training..."):
             try:
-                result = api_client.train(st.session_state.session_id, st.session_state.dataset_id, algo)
+                result = api_client.train(st.session_state.token, st.session_state.dataset_id, algo)
             except api_client.BackendUnreachableError as e:
                 st.error(f"Can't reach the backend: {e}")
             except api_client.ApiError as e:
@@ -336,7 +400,7 @@ def render_predict():
             try:
                 model_id = st.session_state.models[model_name]["model_id"]
                 result = api_client.predict(
-                    st.session_state.session_id,
+                    st.session_state.token,
                     model_id,
                     {
                         "Neighborhood": neighborhood,
@@ -396,5 +460,8 @@ ROUTES = {
 }
 PAGES = list(ROUTES)
 
-sidebar()
-ROUTES[st.session_state.page]()
+if st.session_state.token is None:
+    render_auth()
+else:
+    sidebar()
+    ROUTES[st.session_state.page]()

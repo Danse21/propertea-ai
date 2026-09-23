@@ -17,6 +17,7 @@ dependencies = [
     "pandas>=3.0.5",
     "numpy>=2.5.3",
     "python-dotenv>=1.2.3",
+    "bcrypt>=5.0.0",
 ]
 
 [tool.uv]

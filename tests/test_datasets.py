@@ -9,12 +9,12 @@ from app.models import DatasetRow
 from app.routers.datasets import persist, rows_to_dataframe, to_records
 
 
-def _upload(client, payload, *, session="s1", target="SalePrice", name="ames"):
+def _upload(client, auth, payload, *, target="SalePrice", name="ames"):
     return client.post(
         "/datasets/upload",
         files={"file": ("train.csv", payload, "text/csv")},
         data={"name": name, "target_column": target},
-        headers={"X-Session-Id": session},
+        headers=auth,
     )
 
 
@@ -22,8 +22,8 @@ def _rows(db_session):
     return list(db_session.scalars(select(DatasetRow.data).order_by(DatasetRow.idx)))
 
 
-def test_upload_happy_path(client, db_session, csv_bytes):
-    r = _upload(client, csv_bytes)
+def test_upload_happy_path(client, auth, db_session, csv_bytes):
+    r = _upload(client, auth, csv_bytes)
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["n_rows"] == 4
@@ -36,9 +36,9 @@ def test_upload_happy_path(client, db_session, csv_bytes):
 
 
 def test_missing_values_become_null_and_literal_none_survives(
-    client, db_session, csv_bytes
+    client, auth, db_session, csv_bytes
 ):
-    assert _upload(client, csv_bytes).status_code == 201
+    assert _upload(client, auth, csv_bytes).status_code == 201
     rows = _rows(db_session)
     assert rows[1]["MasVnrType"] == "None"
     assert rows[2]["MasVnrType"] is None
@@ -100,31 +100,29 @@ def test_rows_to_dataframe_unknown_dataset_returns_empty_frame(db_session):
         (b"Id,SalePrice\n", "SalePrice", 400),
     ],
 )
-def test_bad_uploads_are_4xx_not_500(client, payload, target, expected):
-    assert _upload(client, payload, target=target).status_code == expected
+def test_bad_uploads_are_4xx_not_500(client, auth, payload, target, expected):
+    assert _upload(client, auth, payload, target=target).status_code == expected
 
 
-def test_session_scoping(client, csv_bytes):
-    _upload(client, csv_bytes, session="s1")
-    assert len(client.get(
-        "/datasets", headers={"X-Session-Id": "s1"}).json()) == 1
-    assert client.get("/datasets", headers={"X-Session-Id": "s2"}).json() == []
+def test_user_scoping(client, auth, other_auth, csv_bytes):
+    _upload(client, auth, csv_bytes)
+    assert len(client.get("/datasets", headers=auth).json()) == 1
+    assert client.get("/datasets", headers=other_auth).json() == []
 
 
-def test_get_detail(client, csv_bytes):
-    ds_id = _upload(client, csv_bytes).json()["id"]
-    r = client.get(f"/datasets/{ds_id}?limit=2",
-                   headers={"X-Session-Id": "s1"})
+def test_get_detail(client, auth, other_auth, csv_bytes):
+    ds_id = _upload(client, auth, csv_bytes).json()["id"]
+    r = client.get(f"/datasets/{ds_id}?limit=2", headers=auth)
     assert r.status_code == 200
     body = r.json()
     assert body["columns"] == ["Id", "LotArea", "MasVnrType", "SalePrice"]
     assert len(body["rows"]) == 2
 
-    other = client.get(f"/datasets/{ds_id}", headers={"X-Session-Id": "s2"})
+    other = client.get(f"/datasets/{ds_id}", headers=other_auth)
     assert other.status_code == 404
 
 
-def test_from_url(client, monkeypatch, csv_bytes):
+def test_from_url(client, auth, monkeypatch, csv_bytes):
     from app.routers import datasets as datasets_mod
 
     async def fake_fetch(url: str) -> bytes:
@@ -138,7 +136,7 @@ def test_from_url(client, monkeypatch, csv_bytes):
             "name": "ames",
             "target_column": "SalePrice",
         },
-        headers={"X-Session-Id": "s1"},
+        headers=auth,
     )
     assert r.status_code == 201, r.text
     assert r.json()["source_url"] == "https://example.com/train.csv"

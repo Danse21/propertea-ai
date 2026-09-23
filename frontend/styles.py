@@ -149,6 +149,14 @@ html, body, [class*="css"] {
     border-bottom: 1px solid var(--sidebar-divider);
     margin-bottom: var(--space-5);
 }
+.auth-brand {
+    font-weight: 800;
+    font-size: 22px;
+    color: var(--text-strong);
+    padding-bottom: var(--space-8);
+    border-bottom: 1px solid var(--color-gray-200);
+    margin-bottom: var(--space-5);
+}
 [data-testid="stSidebar"] .stButton button {
     width: 70%;
     display: block;

@@ -21,6 +21,10 @@ class BackendUnreachableError(ApiError):
     """The backend could not be reached at all (connection refused, timeout, DNS)."""
 
 
+class AuthError(ApiError):
+    pass
+
+
 def _headers(session_id: str) -> dict:
     return {"X-Session-Id": session_id}
 
@@ -36,9 +40,25 @@ def _request(method: str, path: str, *, timeout: float = TIMEOUT_SECONDS, **kwar
             detail = response.json().get("detail", response.text)
         except ValueError:
             detail = response.text
+        if response.status_code == 401:
+            raise AuthError(str(detail))
         raise ApiError(f"{response.status_code}: {detail}")
 
+    if response.status_code == 204 or not response.content:
+        return {}
     return response.json()
+
+
+def register(username: str, password: str) -> dict:
+    return _request("POST", "/auth/register", json={"username": username, "password": password})
+
+
+def login(username: str, password: str) -> dict:
+    return _request("POST", "/auth/login", json={"username": username, "password": password})
+
+
+def logout(session_id: str) -> None:
+    _request("POST", "/auth/logout", headers=_headers(session_id))
 
 
 def upload_dataset(session_id: str, file, name: str, target_column: str) -> dict:

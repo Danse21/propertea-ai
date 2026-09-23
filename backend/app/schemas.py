@@ -1,6 +1,28 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+
+
+BCRYPT_MAX_PASSWORD_BYTES = 72
+
+
+class AuthRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=8, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+
+    @field_validator("password")
+    @classmethod
+    def fits_bcrypt(cls, value: str) -> str:
+        if len(value.encode()) > BCRYPT_MAX_PASSWORD_BYTES:
+            raise ValueError(
+                f"password must be at most {BCRYPT_MAX_PASSWORD_BYTES} bytes"
+            )
+        return value
+
+
+class AuthResponse(BaseModel):
+    token: str
+    username: str
 
 
 class DatasetCreateFromUrl(BaseModel):
