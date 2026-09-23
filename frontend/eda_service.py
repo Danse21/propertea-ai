@@ -1,5 +1,3 @@
-"""EDA helpers and validation for the Streamlit frontend."""
-
 import sys
 from pathlib import Path
 

@@ -1,5 +1,3 @@
-"""Model training and prediction."""
-
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
@@ -51,7 +49,6 @@ def _build_pipeline(X: pd.DataFrame, algo: str) -> Pipeline:
 
 
 def train_model(raw_df: pd.DataFrame, algo: str) -> dict:
-    """Clean, engineer features, tune (if the model has anything to tune), fit, and evaluate."""
     df = prepare_data(raw_df, drop_outliers=True, require_target=True)
     y = np.log1p(df[TARGET_COLUMN])
     X = df.drop(columns=["Id", TARGET_COLUMN], errors="ignore")
@@ -88,7 +85,6 @@ def train_model(raw_df: pd.DataFrame, algo: str) -> dict:
 
 
 def get_feature_importances(pipeline: Pipeline, X: pd.DataFrame, y: pd.Series, top_n: int = 10) -> pd.Series:
-    """Permutation importance, one value per original column (not per one-hot dummy)."""
     result = permutation_importance(
         pipeline, X, y, n_repeats=5, random_state=42, scoring="neg_root_mean_squared_error", n_jobs=1
     )
@@ -97,7 +93,6 @@ def get_feature_importances(pipeline: Pipeline, X: pd.DataFrame, y: pd.Series, t
 
 
 def compute_defaults(prepared_df: pd.DataFrame) -> dict:
-    """Median (numeric) or mode (categorical) per feature, from an already-prepared frame."""
     defaults = {}
     for col in prepared_df.columns:
         if col in ("Id", TARGET_COLUMN):
@@ -110,7 +105,6 @@ def compute_defaults(prepared_df: pd.DataFrame) -> dict:
 
 
 def build_predict_row(defaults: dict, overrides: dict) -> pd.DataFrame:
-    """One input row: train-time defaults filled in, overrides layered on top."""
     row = dict(defaults)
     row.update(overrides)
 

@@ -48,7 +48,6 @@ def make_valid_df(n_rows: int = 5) -> pd.DataFrame:
 
 
 def make_training_df(n_rows: int = 40) -> pd.DataFrame:
-    """Enough rows, with real numeric variation, for GridSearchCV's cv folds to be non-degenerate."""
     rng = np.random.default_rng(0)
     rows = []
     for i in range(n_rows):
@@ -84,9 +83,6 @@ class TestTrainModel:
         df = make_training_df()
         result = train_model(df, algo)
         rmse = result["metrics"]["rmse_log"]
-        # Regression guard for a real past bug: an accidental extra sqrt()
-        # inflates a small RMSE (e.g. sqrt(0.141) = 0.375), so bounding it
-        # well below 1.0 on the log-price scale would have caught it.
         assert 0 < rmse < 1.0
 
     @pytest.mark.parametrize("algo", list(MODELS.keys()))

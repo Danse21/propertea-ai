@@ -1,5 +1,3 @@
-"""Python-side mirror of styles.py's `:root` color palette."""
-
 COLORS = {
     "white": "#FFFFFF",
     "ink": "#2A241C",

@@ -1,5 +1,3 @@
-"""Model training endpoints — separate from routers/datasets.py's dataset CRUD."""
-
 import io
 from typing import Annotated
 

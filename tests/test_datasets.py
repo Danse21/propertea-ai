@@ -60,7 +60,6 @@ def test_to_records_is_json_safe():
 
 
 def test_rows_to_dataframe_round_trips_persist(db_session):
-    """to_records() -> persist() -> rows_to_dataframe() reproduces the original frame."""
     original = pd.DataFrame(
         {
             "Id": [1, 2, 3],

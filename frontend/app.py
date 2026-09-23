@@ -285,7 +285,6 @@ def render_upload():
 
 
 def _try_load(persist):
-    """`persist` calls the backend (upload or from-url) and returns its DatasetOut dict."""
     try:
         response = persist()
     except api_client.BackendUnreachableError as e:

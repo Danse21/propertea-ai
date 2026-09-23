@@ -1,19 +1,9 @@
-"""CSS injected into the Streamlit app, matching the propertea-ai wireframe."""
-
 CSS = """
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <style>
 :root {
-    /* This app is light-theme only. `[theme] base = "light"` in
-       .streamlit/config.toml pins Streamlit's own painted colors, but native
-       browser form controls (radio dots, checkboxes, scrollbars) follow the
-       separate `color-scheme` CSS property, not Streamlit's theme — without
-       this, a visitor in OS/browser dark mode still gets dark-style native
-       widgets (e.g. a hollow ring instead of a filled radio dot) even though
-       every painted color on the page is light. */
     color-scheme: light;
 
-    /* Palette: raw color values */
     --color-white: #FFFFFF;
     --color-black: #000000;
 
@@ -50,7 +40,6 @@ CSS = """
     --color-rooibos-700: #96301C;
     --color-amber-500: #C2761F;
 
-    /* Semantic tokens ("surface keys") */
     --bg: var(--color-clay-50);
     --surface: var(--color-white);
     --ink: var(--color-clay-900);

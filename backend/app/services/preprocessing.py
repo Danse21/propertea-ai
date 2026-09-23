@@ -1,5 +1,3 @@
-"""Data cleaning and feature engineering for the Ames Housing price dataset."""
-
 import pandas as pd
 
 
@@ -31,7 +29,7 @@ FEATURES_COLUMNS = [
 TARGET_COLUMN = "SalePrice"
 
 class DataValidationError(ValueError):
-    """Raised when a DataFrame doesn't look like valid Ames Housing data."""
+    pass
 
 def validate_data(df: pd.DataFrame, *, require_target: bool = True) -> None:
    
@@ -82,6 +80,5 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def prepare_data(df: pd.DataFrame, *, drop_outliers: bool = True, require_target: bool = True) -> pd.DataFrame:
-    """Single entry point: validate_data(), then clean_data(), then engineer_features()."""
     validate_data(df, require_target=require_target)
     return engineer_features(clean_data(df, drop_outliers=drop_outliers))

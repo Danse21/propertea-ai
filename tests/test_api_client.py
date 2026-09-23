@@ -1,5 +1,3 @@
-"""Unit tests for the two pieces of real logic in api_client.py."""
-
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -79,7 +77,7 @@ class TestGetFullDataset:
     def test_pages_through_multiple_requests_and_reassembles_in_order(self, monkeypatch):
         monkeypatch.setattr(api_client, "PAGE_SIZE", 2)
         columns = ["Id", "Val"]
-        all_rows = [{"Id": i, "Val": f"v{i}"} for i in range(5)]  # page size 2 -> 3 requests
+        all_rows = [{"Id": i, "Val": f"v{i}"} for i in range(5)]
 
         def side_effect(method, url, **kwargs):
             return self._page_response(all_rows, columns, kwargs["params"]["offset"], kwargs["params"]["limit"])
@@ -91,7 +89,6 @@ class TestGetFullDataset:
         assert df["Id"].tolist() == [0, 1, 2, 3, 4]
 
     def test_stops_safely_if_a_page_returns_no_rows_before_n_rows_reached(self, monkeypatch):
-        """Defensive stopping condition — must never infinite-loop on a backend inconsistency."""
         monkeypatch.setattr(api_client, "PAGE_SIZE", 2)
         first_page = {"columns": ["Id"], "rows": [{"Id": 0}, {"Id": 1}], "n_rows": 10}
         empty_page = {"columns": ["Id"], "rows": [], "n_rows": 10}

@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import text
 
-from app import models  # noqa: F401 -- registers tables on Base.metadata before create_all
+from app import models  # noqa: F401
 from app.db import Base, engine
 from app.routers import auth, datasets
 from app.routers import models as model_routes

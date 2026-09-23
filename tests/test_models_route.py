@@ -6,7 +6,6 @@ from app.services.preprocessing import FEATURES_COLUMNS, TARGET_COLUMN
 
 
 def _training_csv(n_rows: int = 40) -> bytes:
-    """Enough rows, with real numeric variation, for GridSearchCV's cv folds to be non-degenerate."""
     rng = np.random.default_rng(0)
     rows = []
     for i in range(n_rows):
@@ -55,8 +54,6 @@ def test_train_happy_path(client, auth, db_session):
     )
     assert r.status_code == 201, r.text
     body = r.json()
-    # Same regression guard as test_modeling.py: catches an accidental extra
-    # sqrt() inflating a small RMSE.
     assert 0 < body["metrics"]["rmse_log"] < 1.0
     assert body["best_params"] is None
     assert isinstance(body["importances"], dict) and len(body["importances"]) > 0
@@ -154,8 +151,6 @@ def test_predict_happy_path_and_shifts_with_overall_qual(client, auth):
     )
     assert low.status_code == 200, low.text
     assert high.status_code == 200, high.text
-    # Synthetic target is 80_000 + OverallQual * 15_000 + ... — a strong,
-    # reliably-recoverable positive relationship, even through noise.
     assert high.json()["prediction"] > low.json()["prediction"]
 
 
