@@ -152,7 +152,7 @@ def _pretty_date(iso: str) -> str:
     return datetime.fromisoformat(iso).strftime("%d %b %Y")
 
 
-def _select_dataset(ds: dict, models: list[dict]) -> None:
+def _select_dataset(ds: dict, models: list[dict], goto: str | None = None) -> None:
     try:
         preview = api_client.get_dataset(st.session_state.token, ds["id"], limit=1)
     except api_client.ApiError as e:
@@ -161,6 +161,7 @@ def _select_dataset(ds: dict, models: list[dict]) -> None:
 
     st.session_state.dataset_id = ds["id"]
     st.session_state.dataset_name = ds["name"]
+    st.session_state.target_column = ds["target_column"] or ""
     st.session_state.dataset_summary = {
         "n_rows": ds["n_rows"],
         "n_columns": len(preview["columns"]),
@@ -179,7 +180,9 @@ def _select_dataset(ds: dict, models: list[dict]) -> None:
         }
         for m in reversed(models)
     }
-    st.session_state.page = "Explore" if st.session_state.ames_ready else "Prepare"
+    for key in PREP_WIDGET_KEYS:
+        st.session_state.pop(key, None)
+    st.session_state.page = goto or ("Explore" if st.session_state.ames_ready else "Prepare")
     st.rerun()
 
 
@@ -669,10 +672,48 @@ def _apply_op(op, frame: pd.DataFrame, *args) -> None:
     st.rerun()
 
 
+def _dataset_picker() -> None:
+    try:
+        datasets = api_client.list_datasets(st.session_state.token)
+    except api_client.BackendUnreachableError as e:
+        st.error(f"Can't reach the backend: {e}")
+        return
+    except api_client.ApiError as e:
+        st.error(f"Couldn't load your datasets: {e}")
+        return
+
+    if not datasets:
+        st.caption("Nothing uploaded yet \u2014 add a CSV below.")
+        return
+
+    labels = {
+        f"{ds['name']} \u00b7 {ds['n_rows']:,} rows \u00b7 target {ds['target_column'] or 'not set'}"
+        f" \u00b7 {_pretty_date(ds['created_at'])}": ds
+        for ds in datasets
+    }
+    pick_col, open_col = st.columns([4, 1])
+    with pick_col:
+        picked = st.selectbox("Open a dataset", list(labels), key="prep_pick")
+    with open_col:
+        spacer(35)
+        open_clicked = st.button("Open", key="prep_open", use_container_width=True)
+
+    if open_clicked:
+        ds = labels[picked]
+        try:
+            models = api_client.list_models(st.session_state.token, ds["id"])
+        except api_client.ApiError:
+            models = []
+        _select_dataset(ds, models, goto="Prepare")
+
+
 def render_prepare():
     crumb("Prepare data")
     st.title("Prepare data")
     st.html("<p class='subtitle'>Upload anything, trim it, inspect it, plot it, then save it as a new dataset</p>")
+
+    with st.expander("Your datasets", expanded=st.session_state.dataset_id is None):
+        _dataset_picker()
 
     with st.expander("Upload a dataset", expanded=st.session_state.dataset_id is None):
         upload_panel("prep-upload", default_target="")
