@@ -6,12 +6,11 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.inspection import permutation_importance
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import root_mean_squared_error
+from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, Ridge
+from sklearn.metrics import r2_score, root_mean_squared_error
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.tree import DecisionTreeRegressor
 
 from app.services.preprocessing import TARGET_COLUMN, engineer_features, prepare_data
 
@@ -20,9 +19,17 @@ MODELS = {
         "build": lambda: LinearRegression(),
         "param_grid": {},
     },
-    "Decision Tree": {
-        "build": lambda: DecisionTreeRegressor(random_state=42),
-        "param_grid": {"model__max_depth": [4, 6, 8], "model__min_samples_leaf": [5, 10]},
+    "Ridge": {
+        "build": lambda: Ridge(random_state=42),
+        "param_grid": {"model__alpha": [0.1, 1.0, 10.0, 50.0]},
+    },
+    "Lasso": {
+        "build": lambda: Lasso(random_state=42, max_iter=10_000),
+        "param_grid": {"model__alpha": [0.0005, 0.001, 0.005, 0.01]},
+    },
+    "Elastic Net": {
+        "build": lambda: ElasticNet(random_state=42, max_iter=10_000),
+        "param_grid": {"model__alpha": [0.0005, 0.001, 0.01], "model__l1_ratio": [0.2, 0.5, 0.8]},
     },
     "Random Forest": {
         "build": lambda: RandomForestRegressor(n_estimators=50, random_state=42),
@@ -72,6 +79,7 @@ def train_model(raw_df: pd.DataFrame, algo: str) -> dict:
 
     pred = pipeline.predict(X_test)
     rmse = root_mean_squared_error(y_test, pred)
+    r2 = r2_score(y_test, pred)
 
     importances = get_feature_importances(pipeline, X_test, y_test)
 
@@ -80,7 +88,7 @@ def train_model(raw_df: pd.DataFrame, algo: str) -> dict:
     return {
         "algo": algo,
         "pipeline": pipeline,
-        "metrics": {"rmse_log": round(float(rmse), 3)},
+        "metrics": {"rmse_log": round(float(rmse), 3), "r2": round(float(r2), 3)},
         "importances": importances,
         "best_params": best_params,
         "defaults": compute_defaults(df),
