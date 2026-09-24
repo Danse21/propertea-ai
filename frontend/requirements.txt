@@ -4,3 +4,4 @@ numpy
 matplotlib
 requests
 seaborn
+streamlit-sortables

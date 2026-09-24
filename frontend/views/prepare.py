@@ -3,6 +3,7 @@ import io
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+from streamlit_sortables import sort_items
 
 import api_client
 import prep_ops
@@ -29,7 +30,6 @@ def _resync_column_widgets(columns: list[str]) -> None:
     for key in PREP_WIDGET_KEYS:
         st.session_state.pop(key, None)
     st.session_state.prep_shown = columns
-    st.session_state.prep_order = columns
 
 
 PREP_HISTORY_LIMIT = 20
@@ -50,16 +50,6 @@ def _apply_op(op, frame: pd.DataFrame, *args, label: str) -> None:
     st.rerun()
 
 
-def _undo_op() -> None:
-    label, frame = st.session_state.prep_history[-1]
-    st.session_state.prep_history = st.session_state.prep_history[:-1]
-    current = st.session_state.prep_df
-    st.session_state.prep_df = frame
-    if current is None or list(current.columns) != list(frame.columns):
-        _resync_column_widgets(list(frame.columns))
-    st.rerun()
-
-
 def _prep_unsaved() -> bool:
     return len(st.session_state.prep_history) != st.session_state.prep_saved_at
 
@@ -71,30 +61,6 @@ def _reset_prep_frame() -> None:
     for key in PREP_WIDGET_KEYS:
         st.session_state.pop(key, None)
     st.rerun()
-
-
-def _column_selector(all_columns: list[str]) -> list[str]:
-    if len(all_columns) <= 15:
-        return list(
-            st.pills(
-                "Columns in view",
-                all_columns,
-                selection_mode="multi",
-                default=all_columns,
-                key="prep_shown",
-            )
-        )
-    with st.expander(f"Columns in view \u2014 {len(st.session_state.get('prep_shown', all_columns))} of {len(all_columns)}"):
-        st.caption("Type to search. Removing a column here only hides it; the data is untouched until you delete it.")
-        return list(
-            st.multiselect(
-                "Columns in view",
-                all_columns,
-                default=all_columns,
-                key="prep_shown",
-                label_visibility="collapsed",
-            )
-        )
 
 
 def render_prepare():
@@ -135,22 +101,20 @@ def render_prepare():
         preview_tab, info_tab, describe_tab, missing_tab = st.tabs(
             ["Preview", "Column information", "Summary statistics", "Missing values"]
         )
-        shown = st.session_state.get("prep_shown") or all_columns
-        shown = [c for c in shown if c in all_columns] or all_columns
         with preview_tab:
             rows = st.slider("Rows to show", 5, 100, 25, key="prep_head_n")
-            st.dataframe(prep[shown].head(rows), use_container_width=True, height=360)
-            st.caption(f"{len(prep):,} rows total \u00b7 showing {min(rows, len(prep))} of them, {len(shown)} of {len(all_columns)} columns")
+            st.dataframe(prep.head(rows), use_container_width=True, height=360)
+            st.caption(f"{len(prep):,} rows total \u00b7 showing {min(rows, len(prep))} of them, {len(all_columns)} columns")
         with info_tab:
             buffer = io.StringIO()
-            prep[shown].info(buf=buffer)
+            prep.info(buf=buffer)
             st.code(buffer.getvalue(), language="text")
         with describe_tab:
             numeric_only = st.toggle("Numeric columns only", value=True, key="prep_desc_numeric")
-            described = prep[shown].describe() if numeric_only else prep[shown].describe(include="all")
+            described = prep.describe() if numeric_only else prep.describe(include="all")
             st.dataframe(described.T, use_container_width=True)
         with missing_tab:
-            miss = missingness_summary(prep[shown])
+            miss = missingness_summary(prep)
             if miss.empty:
                 st.caption("No missing values.")
             else:
@@ -158,43 +122,40 @@ def render_prepare():
 
     with st.container(border=True):
         st.subheader("Columns")
-        hint("Hiding a column only changes what you see here. Deleting removes it from the data you save.")
-        shown = _column_selector(all_columns)
-        hidden = [c for c in all_columns if c not in shown]
+        hint("Click a chip to delete that column from the data you save. Reset brings it back.")
+        kept = list(
+            st.pills(
+                "Columns",
+                all_columns,
+                selection_mode="multi",
+                default=all_columns,
+                key="prep_shown",
+                label_visibility="collapsed",
+            )
+        )
+        dropped = [c for c in all_columns if c not in kept]
 
-        drop_col, undo_col, reset_col = st.columns(3)
-        with drop_col:
-            if st.button(
-                f"Delete {len(hidden)} hidden column{'s' if len(hidden) != 1 else ''} from the data",
-                disabled=not hidden,
-                use_container_width=True,
-            ):
-                _apply_op(
-                    lambda frame, cols: frame.drop(columns=cols), prep, hidden,
-                    label=f"deleted {len(hidden)} column{'s' if len(hidden) != 1 else ''}",
-                )
-        with undo_col:
-            history = st.session_state.prep_history
-            undo_label = f"Undo \u2014 {history[-1][0]}" if history else "Nothing to undo"
-            if st.button(undo_label, disabled=not history, use_container_width=True):
-                _undo_op()
-        with reset_col:
-            if st.session_state.get("prep_confirm_reset"):
-                if st.button("Confirm reset \u2014 lose changes", key="prep-reset-yes", use_container_width=True):
-                    st.session_state.prep_confirm_reset = False
-                    _reset_prep_frame()
-                if st.button("Cancel", key="prep-reset-no", type="tertiary", use_container_width=True):
-                    st.session_state.prep_confirm_reset = False
-                    st.rerun()
-            elif st.button("Reset to uploaded data", use_container_width=True):
-                if unsaved:
-                    st.session_state.prep_confirm_reset = True
-                    st.rerun()
-                else:
-                    _reset_prep_frame()
+        if st.session_state.get("prep_confirm_reset"):
+            if st.button("Confirm reset \u2014 lose changes", key="prep-reset-yes"):
+                st.session_state.prep_confirm_reset = False
+                _reset_prep_frame()
+            if st.button("Cancel", key="prep-reset-no", type="tertiary"):
+                st.session_state.prep_confirm_reset = False
+                st.rerun()
+        elif st.button("Reset to uploaded data"):
+            if unsaved:
+                st.session_state.prep_confirm_reset = True
+                st.rerun()
+            else:
+                _reset_prep_frame()
 
-        if not shown:
-            note("Show at least one column to inspect or plot it.")
+        if dropped and kept:
+            _apply_op(
+                lambda frame, cols: frame.drop(columns=cols), prep, dropped,
+                label=f"deleted {len(dropped)} column{'s' if len(dropped) != 1 else ''}",
+            )
+        elif dropped:
+            note("Keep at least one column \u2014 re-pick one to carry on.")
             return
 
     with st.container(border=True):
@@ -263,15 +224,7 @@ def render_prepare():
             if st.button("Apply renames", key="prep_rename_go"):
                 _apply_op(prep_ops.rename_columns, prep, dict(zip(edited["column"], edited["rename to"])), label="renamed columns")
 
-            order = list(
-                st.multiselect(
-                    "Column order",
-                    all_columns,
-                    default=all_columns,
-                    key="prep_order",
-                    help="Clear it and re-pick the columns in the order you want.",
-                )
-            )
+            order = sort_items(all_columns, header="Drag to reorder", key="prep_order")
             if st.button("Apply order", key="prep_order_go", disabled=order == all_columns):
                 _apply_op(prep_ops.reorder_columns, prep, order, label="reordered columns")
 
@@ -281,7 +234,7 @@ def render_prepare():
         x = y = hue = None
         if kind != HEATMAP:
             none_label = "\u2014"
-            options = [none_label, *shown]
+            options = [none_label, *all_columns]
             x_col, y_col, hue_col = st.columns(3)
             with x_col:
                 x = st.selectbox("X", options, key="prep_plot_x")
