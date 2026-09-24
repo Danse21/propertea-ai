@@ -50,16 +50,6 @@ def _apply_op(op, frame: pd.DataFrame, *args, label: str) -> None:
     st.rerun()
 
 
-def _undo_op() -> None:
-    label, frame = st.session_state.prep_history[-1]
-    st.session_state.prep_history = st.session_state.prep_history[:-1]
-    current = st.session_state.prep_df
-    st.session_state.prep_df = frame
-    if current is None or list(current.columns) != list(frame.columns):
-        _resync_column_widgets(list(frame.columns))
-    st.rerun()
-
-
 def _prep_unsaved() -> bool:
     return len(st.session_state.prep_history) != st.session_state.prep_saved_at
 
@@ -132,7 +122,7 @@ def render_prepare():
 
     with st.container(border=True):
         st.subheader("Columns")
-        hint("Click a chip to delete that column from the data you save. Undo brings it back.")
+        hint("Click a chip to delete that column from the data you save. Reset brings it back.")
         kept = list(
             st.pills(
                 "Columns",
@@ -145,26 +135,19 @@ def render_prepare():
         )
         dropped = [c for c in all_columns if c not in kept]
 
-        undo_col, reset_col = st.columns(2)
-        with undo_col:
-            history = st.session_state.prep_history
-            undo_label = f"Undo \u2014 {history[-1][0]}" if history else "Nothing to undo"
-            if st.button(undo_label, disabled=not history, use_container_width=True):
-                _undo_op()
-        with reset_col:
-            if st.session_state.get("prep_confirm_reset"):
-                if st.button("Confirm reset \u2014 lose changes", key="prep-reset-yes", use_container_width=True):
-                    st.session_state.prep_confirm_reset = False
-                    _reset_prep_frame()
-                if st.button("Cancel", key="prep-reset-no", type="tertiary", use_container_width=True):
-                    st.session_state.prep_confirm_reset = False
-                    st.rerun()
-            elif st.button("Reset to uploaded data", use_container_width=True):
-                if unsaved:
-                    st.session_state.prep_confirm_reset = True
-                    st.rerun()
-                else:
-                    _reset_prep_frame()
+        if st.session_state.get("prep_confirm_reset"):
+            if st.button("Confirm reset \u2014 lose changes", key="prep-reset-yes"):
+                st.session_state.prep_confirm_reset = False
+                _reset_prep_frame()
+            if st.button("Cancel", key="prep-reset-no", type="tertiary"):
+                st.session_state.prep_confirm_reset = False
+                st.rerun()
+        elif st.button("Reset to uploaded data"):
+            if unsaved:
+                st.session_state.prep_confirm_reset = True
+                st.rerun()
+            else:
+                _reset_prep_frame()
 
         if dropped and kept:
             _apply_op(
