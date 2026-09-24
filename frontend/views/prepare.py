@@ -73,20 +73,6 @@ def _reset_prep_frame() -> None:
     st.rerun()
 
 
-def _column_selector(all_columns: list[str]) -> list[str]:
-    if len(all_columns) > 15:
-        st.caption("Removing a column here only hides it; the data is untouched until you delete it.")
-    return list(
-        st.pills(
-            "Columns in view",
-            all_columns,
-            selection_mode="multi",
-            default=all_columns,
-            key="prep_shown",
-        )
-    )
-
-
 def render_prepare():
     page_header(
         "Prepare data",
@@ -125,22 +111,20 @@ def render_prepare():
         preview_tab, info_tab, describe_tab, missing_tab = st.tabs(
             ["Preview", "Column information", "Summary statistics", "Missing values"]
         )
-        shown = st.session_state.get("prep_shown") or all_columns
-        shown = [c for c in shown if c in all_columns] or all_columns
         with preview_tab:
             rows = st.slider("Rows to show", 5, 100, 25, key="prep_head_n")
-            st.dataframe(prep[shown].head(rows), use_container_width=True, height=360)
-            st.caption(f"{len(prep):,} rows total \u00b7 showing {min(rows, len(prep))} of them, {len(shown)} of {len(all_columns)} columns")
+            st.dataframe(prep.head(rows), use_container_width=True, height=360)
+            st.caption(f"{len(prep):,} rows total \u00b7 showing {min(rows, len(prep))} of them, {len(all_columns)} columns")
         with info_tab:
             buffer = io.StringIO()
-            prep[shown].info(buf=buffer)
+            prep.info(buf=buffer)
             st.code(buffer.getvalue(), language="text")
         with describe_tab:
             numeric_only = st.toggle("Numeric columns only", value=True, key="prep_desc_numeric")
-            described = prep[shown].describe() if numeric_only else prep[shown].describe(include="all")
+            described = prep.describe() if numeric_only else prep.describe(include="all")
             st.dataframe(described.T, use_container_width=True)
         with missing_tab:
-            miss = missingness_summary(prep[shown])
+            miss = missingness_summary(prep)
             if miss.empty:
                 st.caption("No missing values.")
             else:
@@ -148,21 +132,20 @@ def render_prepare():
 
     with st.container(border=True):
         st.subheader("Columns")
-        hint("Hiding a column only changes what you see here. Deleting removes it from the data you save.")
-        shown = _column_selector(all_columns)
-        hidden = [c for c in all_columns if c not in shown]
+        hint("Click a chip to delete that column from the data you save. Undo brings it back.")
+        kept = list(
+            st.pills(
+                "Columns",
+                all_columns,
+                selection_mode="multi",
+                default=all_columns,
+                key="prep_shown",
+                label_visibility="collapsed",
+            )
+        )
+        dropped = [c for c in all_columns if c not in kept]
 
-        drop_col, undo_col, reset_col = st.columns(3)
-        with drop_col:
-            if st.button(
-                f"Delete {len(hidden)} hidden column{'s' if len(hidden) != 1 else ''} from the data",
-                disabled=not hidden,
-                use_container_width=True,
-            ):
-                _apply_op(
-                    lambda frame, cols: frame.drop(columns=cols), prep, hidden,
-                    label=f"deleted {len(hidden)} column{'s' if len(hidden) != 1 else ''}",
-                )
+        undo_col, reset_col = st.columns(2)
         with undo_col:
             history = st.session_state.prep_history
             undo_label = f"Undo \u2014 {history[-1][0]}" if history else "Nothing to undo"
@@ -183,8 +166,13 @@ def render_prepare():
                 else:
                     _reset_prep_frame()
 
-        if not shown:
-            note("Show at least one column to inspect or plot it.")
+        if dropped and kept:
+            _apply_op(
+                lambda frame, cols: frame.drop(columns=cols), prep, dropped,
+                label=f"deleted {len(dropped)} column{'s' if len(dropped) != 1 else ''}",
+            )
+        elif dropped:
+            note("Keep at least one column \u2014 re-pick one to carry on.")
             return
 
     with st.container(border=True):
@@ -277,7 +265,7 @@ def render_prepare():
         x = y = hue = None
         if kind != HEATMAP:
             none_label = "\u2014"
-            options = [none_label, *shown]
+            options = [none_label, *all_columns]
             x_col, y_col, hue_col = st.columns(3)
             with x_col:
                 x = st.selectbox("X", options, key="prep_plot_x")
