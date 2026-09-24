@@ -74,27 +74,17 @@ def _reset_prep_frame() -> None:
 
 
 def _column_selector(all_columns: list[str]) -> list[str]:
-    if len(all_columns) <= 15:
-        return list(
-            st.pills(
-                "Columns in view",
-                all_columns,
-                selection_mode="multi",
-                default=all_columns,
-                key="prep_shown",
-            )
+    if len(all_columns) > 15:
+        st.caption("Removing a column here only hides it; the data is untouched until you delete it.")
+    return list(
+        st.pills(
+            "Columns in view",
+            all_columns,
+            selection_mode="multi",
+            default=all_columns,
+            key="prep_shown",
         )
-    with st.expander(f"Columns in view \u2014 {len(st.session_state.get('prep_shown', all_columns))} of {len(all_columns)}"):
-        st.caption("Type to search. Removing a column here only hides it; the data is untouched until you delete it.")
-        return list(
-            st.multiselect(
-                "Columns in view",
-                all_columns,
-                default=all_columns,
-                key="prep_shown",
-                label_visibility="collapsed",
-            )
-        )
+    )
 
 
 def render_prepare():
