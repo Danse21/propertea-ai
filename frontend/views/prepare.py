@@ -272,7 +272,13 @@ def render_prepare():
                     help="Clear it and re-pick the columns in the order you want.",
                 )
             )
-            if st.button("Apply order", key="prep_order_go", disabled=order == all_columns):
+            if set(order) != set(all_columns):
+                st.caption("Re-pick every column to set an order \u2014 removing one here won't delete it. Use Columns above for that.")
+            if st.button(
+                "Apply order",
+                key="prep_order_go",
+                disabled=order == all_columns or set(order) != set(all_columns),
+            ):
                 _apply_op(prep_ops.reorder_columns, prep, order, label="reordered columns")
 
     with st.container(border=True):
