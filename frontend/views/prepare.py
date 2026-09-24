@@ -3,6 +3,7 @@ import io
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+from streamlit_sortables import sort_items
 
 import api_client
 import prep_ops
@@ -29,7 +30,6 @@ def _resync_column_widgets(columns: list[str]) -> None:
     for key in PREP_WIDGET_KEYS:
         st.session_state.pop(key, None)
     st.session_state.prep_shown = columns
-    st.session_state.prep_order = columns
 
 
 PREP_HISTORY_LIMIT = 20
@@ -224,22 +224,8 @@ def render_prepare():
             if st.button("Apply renames", key="prep_rename_go"):
                 _apply_op(prep_ops.rename_columns, prep, dict(zip(edited["column"], edited["rename to"])), label="renamed columns")
 
-            order = list(
-                st.multiselect(
-                    "Column order",
-                    all_columns,
-                    default=all_columns,
-                    key="prep_order",
-                    help="Clear it and re-pick the columns in the order you want.",
-                )
-            )
-            if set(order) != set(all_columns):
-                st.caption("Re-pick every column to set an order \u2014 removing one here won't delete it. Use Columns above for that.")
-            if st.button(
-                "Apply order",
-                key="prep_order_go",
-                disabled=order == all_columns or set(order) != set(all_columns),
-            ):
+            order = sort_items(all_columns, header="Drag to reorder", key="prep_order")
+            if st.button("Apply order", key="prep_order_go", disabled=order == all_columns):
                 _apply_op(prep_ops.reorder_columns, prep, order, label="reordered columns")
 
     with st.container(border=True):
